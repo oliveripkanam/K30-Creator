@@ -60,14 +60,22 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ max_completion_tokens: 2500, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
+      body: JSON.stringify({ max_completion_tokens: 8000, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
     });
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
     const data = await res.json();
     try { console.log('[fn decode] azure response', JSON.stringify(data, null, 2)); } catch {}
-    const content: string = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.delta?.content || '';
-    try { console.log('[fn decode] content length', content?.length, 'first 200 chars:', content?.slice(0, 200)); } catch {}
+    const choice = data?.choices?.[0];
+    const content: string = choice?.message?.content || choice?.delta?.content || '';
+    try { 
+      console.log('[fn decode] choice details:', {
+        finish_reason: choice?.finish_reason,
+        content_length: content?.length,
+        usage: data?.usage,
+        first_100_chars: content?.slice(0, 100)
+      });
+    } catch {}
     
     if (!content?.trim()) {
       return respond(502, { error: 'Empty response from Azure', azureData: data });
