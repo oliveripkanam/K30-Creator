@@ -80,6 +80,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             if (res.ok) {
               const data = await res.json();
               if (Array.isArray(data.mcqs) && data.solution) {
+                console.info('[decoder] using Azure result');
                 onDecoded(data.mcqs, data.solution);
                 return;
               }
@@ -89,6 +90,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           }
 
           // Fallback to local mock generation
+          console.warn('[decoder] falling back to local mock generation');
           const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
           onDecoded(generatedMCQs, solution);
         };

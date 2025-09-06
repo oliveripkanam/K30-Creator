@@ -73,21 +73,14 @@ export default async (req: Request, _context: Context) => {
     return respond(500, { error: "Missing Azure OpenAI endpoint or api key" });
   }
 
-  const system = `You are an assistant that turns an A-Level mechanics problem into a step-by-step solution.
-Return strictly valid JSON with keys: mcqs (array) and solution (object).
-Each MCQ must have: id, question, options (4), correctAnswer (0-based), hint, explanation, step (1..N), and optional calculationStep { formula, substitution, result }.
-The solution must have: finalAnswer (as a number/string), unit, workingSteps (string[]), keyFormulas (string[]).
-Keep steps minimal, logical, and lead to the final answer.`;
+  const system = `You are a precise A-Level mechanics tutor.
+You MUST base everything ONLY on the given problem. Do not invent unrelated scenarios.
+Return STRICT JSON with keys: mcqs (array) and solution (object).
+mcqs[i] fields: id, question, options (exactly 4), correctAnswer (0-based index), hint, explanation, step (1..N), calculationStep { formula, substitution, result } optional.
+solution fields: finalAnswer, unit, workingSteps[], keyFormulas[].
+Questions MUST directly progress toward the final answer for THIS problem.`;
 
-  const user = {
-    role: "user",
-    content: [
-      {
-        type: "text",
-        text: `Problem text:\n${text}\n\nNumber of steps (target): ${marks}. Output JSON only, no prose.`,
-      },
-    ],
-  } as const;
+  const userContent = `Problem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nOutput JSON ONLY (no prose).`;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, "");
@@ -130,10 +123,11 @@ Keep steps minimal, logical, and lead to the final answer.`;
       },
       body: JSON.stringify({
         temperature: 0.2,
+        max_tokens: 1200,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },
-          user,
+          { role: "user", content: userContent },
         ],
       }),
     });
