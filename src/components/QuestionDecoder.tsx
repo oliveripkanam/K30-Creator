@@ -122,8 +122,23 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               if (Array.isArray(data.mcqs) && data.solution) {
                 console.info('[decoder] using Azure result');
                 console.log('[decoder] mcqs:', data.mcqs);
-                console.log('[decoder] solution:', data.solution);
-                onDecoded(data.mcqs, data.solution);
+                console.log('[decoder] solution raw:', JSON.stringify(data.solution, null, 2));
+                
+                // Transform solution if it's in wrong format
+                let transformedSolution = data.solution;
+                if (typeof data.solution.finalAnswer === 'object') {
+                  console.log('[decoder] transforming solution object to strings');
+                  const answerObj = data.solution.finalAnswer;
+                  transformedSolution = {
+                    ...data.solution,
+                    finalAnswer: Object.entries(answerObj).map(([key, value]) => 
+                      `${key}: ${value}`).join(', '),
+                    workingSteps: data.solution.workingSteps || [],
+                    keyFormulas: data.solution.keyFormulas || []
+                  };
+                }
+                console.log('[decoder] transformed solution:', transformedSolution);
+                onDecoded(data.mcqs, transformedSolution);
                 return;
               }
             } else {
