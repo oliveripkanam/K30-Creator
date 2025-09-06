@@ -31,8 +31,36 @@ export default async (req: Request, _context: Context) => {
     return respond(500, { error: 'Missing Azure OpenAI endpoint or api key' });
   }
 
-  const system = `Create ${marks} MCQs for this physics problem. JSON format: {"mcqs":[{"id":"1","question":"Q1","options":["A","B","C","D"],"correctAnswer":0,"hint":"H1","explanation":"E1","step":1}],"solution":{"finalAnswer":"ans","unit":"u","workingSteps":["s1"],"keyFormulas":["f1"]}}`;
-  const userContent = `${text}`;
+  const system = `Physics tutor. Generate ${marks} step-by-step MCQs for A-Level mechanics. Each MCQ tests one solution step. Return JSON only.`;
+  const userContent = `Problem: ${text}
+
+Required JSON structure:
+{
+  "mcqs": [
+    {
+      "id": "1",
+      "question": "Step 1 question text",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctAnswer": 0,
+      "hint": "Brief hint",
+      "explanation": "Why this answer is correct",
+      "step": 1,
+      "calculationStep": {
+        "formula": "T = 2π√(L/g)",
+        "substitution": "T = 2π√(1.2/9.81)",
+        "result": "2.20 s"
+      }
+    }
+  ],
+  "solution": {
+    "finalAnswer": "Complete answer",
+    "unit": "s, rad/s",
+    "workingSteps": ["Step 1: Find period", "Step 2: Find max speed"],
+    "keyFormulas": ["T = 2π√(L/g)", "ωmax = θ₀√(g/L)"]
+  }
+}
+
+Generate exactly ${marks} MCQs covering all solution steps.`;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
@@ -54,7 +82,7 @@ export default async (req: Request, _context: Context) => {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ max_completion_tokens: 3500, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
+      body: JSON.stringify({ max_completion_tokens: 1500, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
     });
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
