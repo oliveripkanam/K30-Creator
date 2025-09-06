@@ -80,7 +80,19 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             });
             console.log('[decoder] /api/ai-decode status', res.status);
             if (res.status === 404) {
-              // try default Netlify functions path
+              console.log('[decoder] trying /api/decode');
+              res = await fetch('/api/decode', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  text: question.extractedText || question.content,
+                  marks: Math.min(5, Math.max(1, question.marks))
+                })
+              });
+              console.log('[decoder] /api/decode status', res.status);
+            }
+            if (res.status === 404) {
+              // try default Netlify functions path(s)
               console.log('[decoder] trying /.netlify/functions/ai-decode');
               res = await fetch('/.netlify/functions/ai-decode', {
                 method: 'POST',
@@ -91,6 +103,18 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 })
               });
               console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
+            }
+            if (res.status === 404) {
+              console.log('[decoder] trying /.netlify/functions/decode');
+              res = await fetch('/.netlify/functions/decode', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  text: question.extractedText || question.content,
+                  marks: Math.min(5, Math.max(1, question.marks))
+                })
+              });
+              console.log('[decoder] /.netlify/functions/decode status', res.status);
             }
             if (res.ok) {
               const data = await res.json();
