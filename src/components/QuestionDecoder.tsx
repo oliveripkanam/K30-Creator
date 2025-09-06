@@ -124,6 +124,15 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 onDecoded(data.mcqs, data.solution);
                 return;
               }
+            } else {
+              // Log error response body
+              try {
+                const errorData = await res.json();
+                console.error('[decoder] error response', res.status, errorData);
+              } catch {
+                const errorText = await res.text();
+                console.error('[decoder] error response', res.status, errorText);
+              }
             }
           } catch {
             // ignore and fall back
