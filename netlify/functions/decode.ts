@@ -31,8 +31,8 @@ export default async (req: Request, _context: Context) => {
     return respond(500, { error: 'Missing Azure OpenAI endpoint or api key' });
   }
 
-  const system = `A-Level mechanics tutor. Return JSON only: {"mcqs":[{"id":"1","question":"...","options":["A","B","C","D"],"correctAnswer":0,"hint":"...","explanation":"...","step":1}],"solution":{"finalAnswer":"...","unit":"...","workingSteps":["..."],"keyFormulas":["..."]}}`;
-  const userContent = `${text}\n\nSteps: ${marks}. JSON only:`;
+  const system = `A-Level mechanics tutor. Return JSON with ${marks} MCQs (one per step): {"mcqs":[{"id":"1","question":"Step 1 question","options":["A","B","C","D"],"correctAnswer":0,"hint":"hint","explanation":"why","step":1},{"id":"2","question":"Step 2 question","options":["A","B","C","D"],"correctAnswer":1,"hint":"hint","explanation":"why","step":2}],"solution":{"finalAnswer":"final answer","unit":"units","workingSteps":["step1","step2"],"keyFormulas":["formula1"]}}`;
+  const userContent = `Problem: ${text}\n\nCreate ${marks} MCQs (one per solution step). JSON only:`;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
