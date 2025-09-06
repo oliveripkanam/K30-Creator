@@ -31,8 +31,8 @@ export default async (req: Request, _context: Context) => {
     return respond(500, { error: 'Missing Azure OpenAI endpoint or api key' });
   }
 
-  const system = `You are a precise A-Level mechanics tutor. Base everything ONLY on the given problem. Return strict JSON with mcqs[] and solution. mcqs[i] require: id, question, options(4), correctAnswer(0-based), hint, explanation, step, optional calculationStep { formula, substitution, result }.`;
-  const userContent = `Problem text:\n${text}\n\nTarget number of steps (marks): ${marks}. Output JSON ONLY.`;
+  const system = `A-Level mechanics tutor. Return JSON only: {"mcqs":[{"id":"1","question":"...","options":["A","B","C","D"],"correctAnswer":0,"hint":"...","explanation":"...","step":1}],"solution":{"finalAnswer":"...","unit":"...","workingSteps":["..."],"keyFormulas":["..."]}}`;
+  const userContent = `${text}\n\nSteps: ${marks}. JSON only:`;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
@@ -54,7 +54,7 @@ export default async (req: Request, _context: Context) => {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ max_completion_tokens: 1200, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
+      body: JSON.stringify({ max_completion_tokens: 2000, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
     });
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
