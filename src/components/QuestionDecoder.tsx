@@ -66,11 +66,34 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         setIsComplete(true);
         clearInterval(interval);
         
-        // Generate mock MCQs based on the question marks
-        setTimeout(() => {
+        // Try real Azure-backed decode first; fall back to mock templates on failure
+        const decode = async () => {
+          try {
+            const res = await fetch('/api/ai-decode', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                text: question.extractedText || question.content,
+                marks: Math.min(5, Math.max(1, question.marks))
+              })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (Array.isArray(data.mcqs) && data.solution) {
+                onDecoded(data.mcqs, data.solution);
+                return;
+              }
+            }
+          } catch {
+            // ignore and fall back
+          }
+
+          // Fallback to local mock generation
           const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
           onDecoded(generatedMCQs, solution);
-        }, 1000);
+        };
+
+        decode();
       }
     }, 1000);
 

@@ -52,7 +52,12 @@
   ### AI integration (planned)
   - OCR: Azure AI Vision Read / Azure Document Intelligence (prebuilt‑read/layout)
   - Reasoning/Generation: Azure OpenAI (gpt‑4o / gpt‑4o‑mini) to produce steps, MCQs, and a solution summary
-  - The current implementation uses timers and templates to simulate these steps for UI testing
+  - Endpoint exposed at `/api/ai-decode` (Netlify Function). Provide these env vars in Netlify:
+    - `AZURE_OPENAI_ENDPOINT`
+    - `AZURE_OPENAI_API_KEY`
+    - `AZURE_OPENAI_DEPLOYMENT` (e.g. gpt-4o or gpt-4o-mini deployment name)
+    - `AZURE_OPENAI_API_VERSION` (default: 2024-06-01)
+  - The UI will call the endpoint and gracefully fall back to mock generation if the function fails
 
   ### License
   MIT — see `LICENSE`.
