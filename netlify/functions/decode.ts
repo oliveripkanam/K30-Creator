@@ -59,10 +59,27 @@ export default async (req: Request, _context: Context) => {
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
     const data = await res.json();
+    try { console.log('[fn decode] azure response', JSON.stringify(data, null, 2)); } catch {}
     const content: string = data?.choices?.[0]?.message?.content || data?.choices?.[0]?.delta?.content || '';
+    try { console.log('[fn decode] content length', content?.length, 'first 200 chars:', content?.slice(0, 200)); } catch {}
+    
+    if (!content?.trim()) {
+      return respond(502, { error: 'Empty response from Azure', azureData: data });
+    }
+    
     let parsed: DecodeResponse | null = null;
-    try { parsed = JSON.parse(content); } catch { const m = content.match(/\{[\s\S]*\}/); if (m) parsed = JSON.parse(m[0]); }
-    if (!parsed || !Array.isArray(parsed.mcqs) || !parsed.solution) { try { console.error('[fn decode] invalid model output', content); } catch {}; return respond(502, { error: 'Invalid model output', raw: content }); }
+    try { 
+      parsed = JSON.parse(content); 
+    } catch { 
+      const m = content.match(/\{[\s\S]*\}/); 
+      if (m) {
+        try { parsed = JSON.parse(m[0]); } catch {}
+      }
+    }
+    if (!parsed || !Array.isArray(parsed.mcqs) || !parsed.solution) { 
+      try { console.error('[fn decode] invalid model output', { content, parsed }); } catch {}; 
+      return respond(502, { error: 'Invalid model output', raw: content, parsed }); 
+    }
     return respond(200, { ...parsed, mcqs: parsed.mcqs.slice(0, marks) });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
