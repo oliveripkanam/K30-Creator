@@ -48,7 +48,8 @@ const getEnv = (key: string) => {
   }
 };
 
-export default async (req: Request, _context: Context) => {
+export default async (req: Request, context: Context) => {
+  try { console.log('[fn ai-decode] invocation', { method: req.method, url: req.url }); } catch {}
   if (req.method !== "POST") {
     return respond(405, { error: "Method not allowed" });
   }
@@ -70,6 +71,7 @@ export default async (req: Request, _context: Context) => {
   const apiVersion = (getEnv("AZURE_OPENAI_API_VERSION") || "2024-06-01").trim();
 
   if (!rawEndpoint || !apiKey) {
+    try { console.error('[fn ai-decode] missing config', { hasEndpoint: !!rawEndpoint, hasKey: !!apiKey }); } catch {}
     return respond(500, { error: "Missing Azure OpenAI endpoint or api key" });
   }
 
@@ -111,8 +113,10 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
   try {
     url = buildUrl(rawEndpoint, deployment, apiVersion);
   } catch (e: any) {
+    try { console.error('[fn ai-decode] url build error', e); } catch {}
     return respond(500, { error: e?.message || "Invalid Azure OpenAI configuration" });
   }
+  try { console.log('[fn ai-decode] config', { endpoint: rawEndpoint, deployment, apiVersion, url }); } catch {}
 
   try {
     const res = await fetch(url, {
@@ -134,6 +138,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
 
     if (!res.ok) {
       const body = await res.text();
+      try { console.error('[fn ai-decode] azure error', res.status, body); } catch {}
       return respond(res.status, { error: "Azure error", details: body });
     }
 
@@ -153,12 +158,14 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     }
 
     if (!parsed || !Array.isArray(parsed.mcqs) || !parsed.solution) {
+      try { console.error('[fn ai-decode] invalid model output', content); } catch {}
       return respond(502, { error: "Invalid model output", raw: content });
     }
 
     const limited = { ...parsed, mcqs: parsed.mcqs.slice(0, marks) };
     return respond(200, limited);
   } catch (err: any) {
+    try { console.error('[fn ai-decode] exception', err); } catch {}
     return respond(500, { error: "Server error", details: String(err?.message || err) });
   }
 };

@@ -69,6 +69,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         // Try real Azure-backed decode first; fall back to mock templates on failure
         const decode = async () => {
           try {
+            console.log('[decoder] POST /api/ai-decode');
             let res = await fetch('/api/ai-decode', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
@@ -77,8 +78,10 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 marks: Math.min(5, Math.max(1, question.marks))
               })
             });
+            console.log('[decoder] /api/ai-decode status', res.status);
             if (res.status === 404) {
               // try default Netlify functions path
+              console.log('[decoder] trying /.netlify/functions/ai-decode');
               res = await fetch('/.netlify/functions/ai-decode', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
@@ -87,9 +90,11 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                   marks: Math.min(5, Math.max(1, question.marks))
                 })
               });
+              console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
             }
             if (res.ok) {
               const data = await res.json();
+              console.log('[decoder] response ok; keys', Object.keys(data || {}));
               if (Array.isArray(data.mcqs) && data.solution) {
                 console.info('[decoder] using Azure result');
                 onDecoded(data.mcqs, data.solution);
