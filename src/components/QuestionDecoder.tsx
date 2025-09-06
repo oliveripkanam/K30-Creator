@@ -121,6 +121,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               console.log('[decoder] response ok; keys', Object.keys(data || {}));
               if (Array.isArray(data.mcqs) && data.solution) {
                 console.info('[decoder] using Azure result');
+                console.log('[decoder] mcqs:', data.mcqs);
+                console.log('[decoder] solution:', data.solution);
                 onDecoded(data.mcqs, data.solution);
                 return;
               }
