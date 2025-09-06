@@ -54,7 +54,7 @@ export default async (req: Request, _context: Context) => {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ temperature: 0.2, max_tokens: 1200, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
+      body: JSON.stringify({ temperature: 0.2, max_completion_tokens: 1200, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
     });
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
