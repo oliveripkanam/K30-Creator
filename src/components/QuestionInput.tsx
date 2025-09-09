@@ -27,6 +27,56 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [activeTab, setActiveTab] = useState('text');
+  const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+
+  const prevent = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const onPhotoDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    prevent(e);
+    setIsDraggingPhoto(true);
+  };
+  const onPhotoDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    prevent(e);
+    setIsDraggingPhoto(false);
+  };
+  const onPhotoDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    prevent(e);
+    setIsDraggingPhoto(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setPhotoFile(file);
+    }
+  };
+
+  const isAllowedDoc = (file: File) => {
+    const name = file.name.toLowerCase();
+    return (
+      file.type === 'application/pdf' ||
+      file.type === 'application/msword' ||
+      file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx')
+    );
+  };
+  const onFileDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    prevent(e);
+    setIsDraggingFile(true);
+  };
+  const onFileDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    prevent(e);
+    setIsDraggingFile(false);
+  };
+  const onFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    prevent(e);
+    setIsDraggingFile(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && isAllowedDoc(file)) {
+      setUploadFile(file);
+    }
+  };
 
   const handleSubmit = () => {
     let content = '';
@@ -141,7 +191,15 @@ Example: A ball is thrown horizontally from the top of a building 20m high with 
               <TabsContent value="photo" className="space-y-4">
                 <div>
                   <Label htmlFor="photo-upload">Take or Upload Photo</Label>
-                  <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  <div
+                    className={`mt-2 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      isDraggingPhoto ? 'border-purple-400 bg-purple-50' : 'border-gray-300'
+                    }`}
+                    onDragOver={onPhotoDragOver}
+                    onDragEnter={onPhotoDragOver}
+                    onDragLeave={onPhotoDragLeave}
+                    onDrop={onPhotoDrop}
+                  >
                     {photoFile ? (
                       <div className="space-y-2">
                         <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
@@ -162,7 +220,7 @@ Example: A ball is thrown horizontally from the top of a building 20m high with 
                           </svg>
                         </div>
                         <div>
-                          <p className="text-sm text-gray-600">Click to upload or take a photo</p>
+                          <p className="text-sm text-gray-600">Drag & drop an image here, or click to choose</p>
                           <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
                           <p className="text-xs text-purple-600 mt-1">✨ AI will analyze and extract text from your image</p>
                         </div>
@@ -189,7 +247,15 @@ Example: A ball is thrown horizontally from the top of a building 20m high with 
               <TabsContent value="file" className="space-y-4">
                 <div>
                   <Label htmlFor="file-upload">Upload Document</Label>
-                  <div className="mt-2 border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                  <div
+                    className={`mt-2 border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                      isDraggingFile ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
+                    }`}
+                    onDragOver={onFileDragOver}
+                    onDragEnter={onFileDragOver}
+                    onDragLeave={onFileDragLeave}
+                    onDrop={onFileDrop}
+                  >
                     {uploadFile ? (
                       <div className="space-y-2">
                         <div className="w-16 h-16 mx-auto bg-blue-100 rounded-full flex items-center justify-center">
@@ -210,7 +276,7 @@ Example: A ball is thrown horizontally from the top of a building 20m high with 
                           </svg>
                         </div>
                         <div>
-                          <p className="text-sm text-gray-600">Click to upload a document</p>
+                          <p className="text-sm text-gray-600">Drag & drop a PDF/DOC here, or click to choose</p>
                           <p className="text-xs text-gray-400">PDF, DOC, DOCX up to 10MB</p>
                           <p className="text-xs text-blue-600 mt-1">✨ AI will analyze and extract text from your document</p>
                         </div>
