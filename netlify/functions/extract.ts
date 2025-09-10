@@ -84,7 +84,7 @@ export default async (req: Request, _context: Context) => {
     if (!opLocation) return respond(502, { error: "Missing Operation-Location header" });
 
     // Poll for result
-    const maxWaitMs = 20000;
+    const maxWaitMs = 60000;
     const intervalMs = 800;
     const start = Date.now();
     let result: any = null;

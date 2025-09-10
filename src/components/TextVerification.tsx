@@ -150,7 +150,7 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
               />
               <div className="mt-4 text-sm text-muted-foreground">
                 <p>Preview (LaTeX):</p>
-                <div className="mt-2 p-3 rounded border bg-white max-h-80 overflow-auto">
+                <div className="mt-2 p-3 rounded border bg-white max-h-80 overflow-auto font-sans">
                   {(() => {
                     const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     const norm = (s: string) => s
