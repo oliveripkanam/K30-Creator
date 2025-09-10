@@ -146,6 +146,26 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
                 placeholder="Edit the extracted text here..."
                 className="min-h-40 bg-white border-amber-200 focus:border-amber-400"
               />
+              <div className="mt-4 text-sm text-muted-foreground">
+                <p>Preview (with maths formatting):</p>
+                <div
+                  className="mt-2 p-3 rounded border bg-white"
+                  dangerouslySetInnerHTML={{
+                    __html: extractedText
+                      .replace(/&/g, '&amp;')
+                      .replace(/</g, '&lt;')
+                      .replace(/>/g, '&gt;')
+                      // superscripts
+                      .replace(/([A-Za-z0-9)\]])\^\{([^}]+)\}/g, '$1<sup>$2</sup>')
+                      .replace(/([A-Za-z0-9)\]])\^(\-?[0-9]+)\b/g, '$1<sup>$2</sup>')
+                      // subscripts
+                      .replace(/([A-Za-z0-9)\]])_\{([^}]+)\}/g, '$1<sub>$2</sub>')
+                      .replace(/([A-Za-z])_(\d+)\b/g, '$1<sub>$2</sub>')
+                      .replace(/ms[–-]?\^?(-?1)\b/g, 'ms<sup>$1</sup>')
+                      .replace(/\n/g, '<br/>')
+                  }}
+                />
+              </div>
               <div className="flex justify-between mt-2">
                 <p className="text-xs text-muted-foreground">
                   {extractedText.length} characters

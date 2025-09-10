@@ -30,13 +30,44 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
   const normalizeExtractedText = (raw: string): string => {
     let t = (raw || '').replace(/\r/g, '');
     // Drop obvious artefact lines
-    t = t.replace(/^\s*(Figure\s*\d+|[A-Z]$|[A-Z]\s*$|\d+\.)\s*$/gmi, '').trim();
+    t = t
+      // standalone figure labels, single letters, bare question numbers
+      .replace(/^\s*(Figure\s*\d+|[A-Z]$|[A-Z]\s*$|\d+\.)\s*$/gmi, '')
+      // exam margins / boilerplate
+      .replace(/DO\s*NOT\s*WRITE\s*IN\s*THIS\s*AREA/gi, '')
+      .replace(/^\s*\[.*?\]\s*$/gmi, '') // bracketed header notes
+      // barcode / page code like *P72131A0220* or P72131A0220
+      .replace(/^\s*\*?[A-Z0-9]{8,}\*?\s*$/gmi, '')
+      // all-caps short noise like XX, KX/2
+      .replace(/^\s*[A-Z0-9/]{2,10}\s*$/gm, '')
+      // pure underscore/dash rules or long horizontal lines
+      .replace(/^[_\-\s]{5,}$/gm, '')
+      // stray long zero/digit lines
+      .replace(/^\s*[0-9]{4,}\s*$/gm, '');
     // Join stacked fractions like 5\n12 -> 5/12, 12mg\n5 -> 12mg/5
     t = t.replace(/(\b[\da-zA-Z]+(?:\s*[a-zA-Z])?)\s*\n\s*(\d+)\b/g, '$1/$2');
     // Collapse multiple spaces/newlines
     t = t.replace(/\n{2,}/g, '\n');
     t = t.replace(/\s{2,}/g, ' ');
     return t.trim();
+  };
+
+  const toHtmlSafe = (s: string) => s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  const formatEquationsToHtml = (s: string): string => {
+    let h = toHtmlSafe(s);
+    // Superscripts: x^2, v^-1, T^{1/2}
+    h = h.replace(/([A-Za-z0-9)\]] )\^\{([^}]+)\}/g, '$1<sup>$2</sup>');
+    h = h.replace(/([A-Za-z0-9)\]])\^(\-?[0-9]+)\b/g, '$1<sup>$2</sup>');
+    // Subscripts: x_1, a_{max}
+    h = h.replace(/([A-Za-z0-9)\]])_\{([^}]+)\}/g, '$1<sub>$2</sub>');
+    h = h.replace(/([A-Za-z])_(\d+)\b/g, '$1<sub>$2</sub>');
+    // Common units like ms^-1 that OCR writes as ms-1 or ms–1
+    h = h.replace(/ms[–-]?\^?(-?1)\b/g, 'ms<sup>$1</sup>');
+    return h;
   };
 
   const steps = question.type === 'photo' 
