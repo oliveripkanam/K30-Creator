@@ -2,7 +2,7 @@ import type { Context, Config } from "@netlify/functions";
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[] };
-type DecodeRequest = { text: string; marks?: number };
+type DecodeRequest = { text: string; marks?: number; imageBase64?: string; imageMimeType?: string };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -15,6 +15,8 @@ export default async (req: Request, _context: Context) => {
   let payload: DecodeRequest; try { payload = await req.json(); } catch { return respond(400, { error: 'Invalid JSON body' }); }
   const text = (payload.text || '').toString().trim();
   const marks = Math.max(1, Math.min(5, Number(payload.marks ?? 3)));
+  const imageBase64 = (payload.imageBase64 || '').trim();
+  const imageMimeType = (payload.imageMimeType || '').trim();
   if (!text) return respond(400, { error: "Missing 'text'" });
 
   // Bypass switch for routing checks
@@ -38,7 +40,7 @@ mcqs[i] fields: id, question, options (exactly 4), correctAnswer (0-based index)
 solution fields: finalAnswer, unit, workingSteps[], keyFormulas[].
 Questions MUST directly progress toward the final answer for THIS problem.`;
 
-  const userContent = `Problem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nOutput JSON ONLY (no prose).`;
+  const userText = `Problem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nIf an image is attached, use it only to disambiguate geometry/labels. Output JSON ONLY (no prose).`;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
@@ -57,10 +59,22 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
   try { console.log('[fn decode] config', { endpoint: rawEndpoint, deployment, apiVersion, url }); } catch {}
 
   try {
+    const messageContent: any[] = [ { type: 'text', text: userText } ];
+    if (imageBase64 && imageMimeType) {
+      messageContent.push({ type: 'input_image', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
+    }
+
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-      body: JSON.stringify({ max_completion_tokens: 8000, response_format: { type: 'json_object' }, messages: [ { role: 'system', content: system }, { role: 'user', content: userContent } ] })
+      body: JSON.stringify({
+        max_completion_tokens: 8000,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: messageContent }
+        ]
+      })
     });
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 

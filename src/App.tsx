@@ -38,6 +38,7 @@ interface Question {
   marks: number;
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
+  fileData?: { base64: string; mimeType: string; name: string };
 }
 
 interface CompletedQuestion extends Question {
