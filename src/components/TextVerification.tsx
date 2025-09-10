@@ -150,20 +150,35 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
               />
               <div className="mt-4 text-sm text-muted-foreground">
                 <p>Preview (LaTeX):</p>
-                <div className="mt-2 p-3 rounded border bg-white">
+                <div className="mt-2 p-3 rounded border bg-white max-h-72 overflow-auto">
                   {(() => {
-                    // Heuristic: convert simple a/b into \frac{a}{b} when safe (no spaces)
-                    const toFrac = (s: string) => s.replace(/\b([A-Za-z0-9]+)\/([A-Za-z0-9]+)\b/g, '\\frac{$1}{$2}');
-                    // Convert ^ and _ into LaTeX if not already braced
-                    const toLatex = (s: string) => toFrac(s)
+                    const safeHtml = (s: string) => s
+                      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const normalizeMath = (s: string) => s
+                      .replace(/[–—]/g, '-') // normalize dashes
+                      .replace(/\b([A-Za-z0-9]+)\/([A-Za-z0-9]+)\b/g, '\\frac{$1}{$2}') // simple a/b
                       .replace(/\^(\-?\d+)\b/g, '^{$1}')
                       .replace(/_([A-Za-z0-9]+)/g, '_{$1}');
-                    try {
-                      const html = katex.renderToString(toLatex(extractedText), { throwOnError: false, displayMode: true });
-                      return <div dangerouslySetInnerHTML={{ __html: html }} />;
-                    } catch {
-                      return <pre className="whitespace-pre-wrap">{extractedText}</pre>;
-                    }
+                    const isMathy = (line: string) => /[=^_\\frac]|\b(ms|m|s|kg|N|J|V|A|Pa|mol|Hz)\b/.test(line) || /\d\s*\/\s*\d/.test(line);
+
+                    const lines = extractedText.split(/\n+/);
+                    return (
+                      <div className="space-y-2">
+                        {lines.map((line, idx) => {
+                          const trimmed = line.trim();
+                          if (!trimmed) return <div key={idx} />;
+                          if (isMathy(trimmed)) {
+                            try {
+                              const html = katex.renderToString(normalizeMath(trimmed), { throwOnError: false, displayMode: true });
+                              return <div key={idx} dangerouslySetInnerHTML={{ __html: html }} />;
+                            } catch {
+                              return <div key={idx} className="font-mono">{trimmed}</div>;
+                            }
+                          }
+                          return <div key={idx}>{safeHtml(trimmed)}</div>;
+                        })}
+                      </div>
+                    );
                   })()}
                 </div>
               </div>
