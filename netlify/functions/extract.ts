@@ -61,8 +61,23 @@ export default async (req: Request, _context: Context) => {
       lastErrText = await r.text().catch(() => '');
     }
 
+    // If both modern endpoints failed, try legacy v2.1 layout
     if (!submit) {
-      return respond(404, { error: "analyze submit failed", details: lastErrText });
+      const legacyUrl = `${endpoint}/formrecognizer/v2.1/layout/analyze`;
+      const r = await fetch(legacyUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": mimeType || "application/octet-stream",
+          "Ocp-Apim-Subscription-Key": key,
+        },
+        body: bytes,
+      });
+      if (r.ok) {
+        submit = r;
+      } else {
+        const t = await r.text().catch(() => lastErrText);
+        return respond(404, { error: "analyze submit failed", details: t || lastErrText });
+      }
     }
 
     const opLocation = submit.headers.get("operation-location") || submit.headers.get("Operation-Location");
@@ -97,12 +112,22 @@ export default async (req: Request, _context: Context) => {
 
     // Extract text from analyzeResult
     const blocks: string[] = [];
-    const readResult = result.analyzeResult || result.documents || result;
-    const pages = readResult?.pages || [];
-    for (const p of pages) {
-      const lines = p.lines || [];
-      for (const line of lines) {
-        if (line.content) blocks.push(line.content);
+    const analyze = result.analyzeResult || result.documents || result;
+    if (analyze?.pages) {
+      // v3.x structure
+      for (const p of analyze.pages) {
+        const lines = p.lines || [];
+        for (const line of lines) {
+          if (line.content) blocks.push(line.content);
+        }
+      }
+    } else if (analyze?.readResults) {
+      // v2.1 structure
+      for (const rr of analyze.readResults) {
+        const lines = rr.lines || [];
+        for (const line of lines) {
+          if (line.text) blocks.push(line.text);
+        }
       }
     }
     const content = blocks.join("\n");
