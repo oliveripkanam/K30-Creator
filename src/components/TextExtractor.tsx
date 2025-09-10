@@ -12,6 +12,7 @@ interface Question {
   marks: number;
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
+  fileData?: { base64: string; mimeType: string; name: string };
 }
 
 interface TextExtractorProps {
@@ -45,16 +46,57 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
       ];
 
   React.useEffect(() => {
-    // Skip extraction for text questions
+    // Text path: no OCR
     if (question.type === 'text') {
-      const updatedQuestion = {
-        ...question,
-        extractedText: question.content
-      };
+      const updatedQuestion = { ...question, extractedText: question.content };
       onTextExtracted(updatedQuestion);
       return;
     }
 
+    // If we have an actual file payload, call real OCR; else keep simulated path
+    if (question.fileData?.base64 && question.fileData?.mimeType) {
+      const run = async () => {
+        try {
+          setCurrentStep('Uploading to OCR engine...');
+          setProgress(15);
+          const res = await fetch('/api/extract', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              fileBase64: question.fileData!.base64,
+              mimeType: question.fileData!.mimeType,
+            }),
+          });
+          setCurrentStep('Processing document...');
+          setProgress(55);
+          if (res.ok) {
+            const data = await res.json();
+            const text: string = data?.text || '';
+            setExtractedText(text);
+            setProgress(100);
+            setIsComplete(true);
+            const updatedQuestion = { ...question, extractedText: text };
+            setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+            return;
+          }
+        } catch {
+          // ignore and fall back to mock
+        }
+
+        // Fallback simulation
+        setCurrentStep('Falling back to simulated extraction...');
+        const mockExtractedText = generateMockExtractedText(question);
+        setExtractedText(mockExtractedText);
+        setProgress(100);
+        setIsComplete(true);
+        const updatedQuestion = { ...question, extractedText: mockExtractedText };
+        setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+      };
+      run();
+      return;
+    }
+
+    // Simulated path (no file payload provided)
     let currentIndex = 0;
     const interval = setInterval(() => {
       if (currentIndex < steps.length) {
@@ -64,21 +106,10 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
       } else {
         setIsComplete(true);
         clearInterval(interval);
-        
-        // Simulate text extraction
-        setTimeout(() => {
-          const mockExtractedText = generateMockExtractedText(question);
-          setExtractedText(mockExtractedText);
-          
-          const updatedQuestion = {
-            ...question,
-            extractedText: mockExtractedText
-          };
-          
-          setTimeout(() => {
-            onTextExtracted(updatedQuestion);
-          }, 2000);
-        }, 1000);
+        const mockExtractedText = generateMockExtractedText(question);
+        setExtractedText(mockExtractedText);
+        const updatedQuestion = { ...question, extractedText: mockExtractedText };
+        setTimeout(() => onTextExtracted(updatedQuestion), 1200);
       }
     }, 800);
 

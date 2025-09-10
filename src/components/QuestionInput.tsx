@@ -14,6 +14,7 @@ interface Question {
   marks: number;
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
+  fileData?: { base64: string; mimeType: string; name: string };
 }
 
 interface QuestionInputProps {
@@ -78,20 +79,42 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
     }
   };
 
-  const handleSubmit = () => {
+  const readAsBase64 = (file: File) => new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('file read failed'));
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const idx = result.indexOf(',');
+      resolve(idx >= 0 ? result.slice(idx + 1) : result);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handleSubmit = async () => {
     let content = '';
     let type: 'photo' | 'file' | 'text' = 'text';
+    let fileData: Question['fileData'] | undefined;
 
     switch (activeTab) {
       case 'photo':
         if (!photoFile) return;
         content = `Photo uploaded: ${photoFile.name}`;
         type = 'photo';
+        fileData = {
+          base64: await readAsBase64(photoFile),
+          mimeType: photoFile.type || 'image/*',
+          name: photoFile.name,
+        };
         break;
       case 'file':
         if (!uploadFile) return;
         content = `File uploaded: ${uploadFile.name}`;
         type = 'file';
+        fileData = {
+          base64: await readAsBase64(uploadFile),
+          mimeType: uploadFile.type || 'application/octet-stream',
+          name: uploadFile.name,
+        };
         break;
       case 'text':
         if (!textContent.trim()) return;
@@ -105,7 +128,8 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       content,
       marks,
       type,
-      timestamp: new Date()
+      timestamp: new Date(),
+      fileData,
     };
 
     onSubmit(question);
