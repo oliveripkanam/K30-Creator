@@ -184,13 +184,29 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
                       const segs = splitInline(line);
                       const noDelimiters = segs.length === 1 && !segs[0].math;
                       if (noDelimiters && isImplicitMath(line.trim())) {
-                        // Fallback: render the whole line as display math
-                        try {
-                          const html = katex.renderToString(norm(line.trim()), { throwOnError: false, displayMode: true });
-                          return <div key={key} dangerouslySetInnerHTML={{ __html: html }} />;
-                        } catch {
-                          return <div key={key} className="font-mono">{line}</div>;
+                        // Try to auto-wrap only equation spans (lhs = rhs) instead of whole line
+                        const parts: React.ReactNode[] = [];
+                        let s = line; let pos = 0;
+                        const punct = /[.,;:)]/;
+                        while (true) {
+                          const eq = s.indexOf('=', pos);
+                          if (eq < 0) break;
+                          // Left boundary: from previous punctuation or start
+                          let left = pos; for (let i = eq - 1; i >= pos; i--) { if (punct.test(s[i])) { left = i + 1; break; } }
+                          // Right boundary: to next punctuation or end
+                          let right = s.length; for (let i = eq + 1; i < s.length; i++) { if (punct.test(s[i])) { right = i; break; } }
+                          if (left > pos) parts.push(<span key={`${key}-t-${pos}` } dangerouslySetInnerHTML={{ __html: escapeHtml(s.slice(pos, left)) }} />);
+                          const mathSeg = s.slice(left, right).trim();
+                          try {
+                            const html = katex.renderToString(norm(mathSeg), { throwOnError: false, displayMode: false });
+                            parts.push(<span key={`${key}-m-${left}`} dangerouslySetInnerHTML={{ __html: html }} />);
+                          } catch {
+                            parts.push(<span key={`${key}-f-${left}`} className="font-mono">{mathSeg}</span>);
+                          }
+                          pos = right;
                         }
+                        if (pos < s.length) parts.push(<span key={`${key}-r`} dangerouslySetInnerHTML={{ __html: escapeHtml(s.slice(pos)) }} />);
+                        return <div key={key} className="whitespace-pre-wrap">{parts}</div>;
                       }
                       return (
                         <div key={key} className="whitespace-pre-wrap">
