@@ -58,7 +58,7 @@ export default async (req: Request, _context: Context) => {
     : userText;
 
   try {
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
@@ -69,6 +69,21 @@ export default async (req: Request, _context: Context) => {
         ]
       })
     });
+    if (!res.ok && Array.isArray(contentPayload)) {
+      // Fallback: retry with text-only (some deployments disallow images)
+      const res2 = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          max_completion_tokens: 600,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: userText },
+          ]
+        })
+      });
+      res = res2;
+    }
     if (!res.ok) return respond(res.status, { error: 'Azure error', details: await res.text() });
     const data = await res.json();
     const content: string = data?.choices?.[0]?.message?.content || '';

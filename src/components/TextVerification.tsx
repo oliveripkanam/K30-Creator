@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from './ui/button';
+import 'katex/dist/katex.min.css';
+import katex from 'katex';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
@@ -147,24 +149,23 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
                 className="min-h-40 bg-white border-amber-200 focus:border-amber-400"
               />
               <div className="mt-4 text-sm text-muted-foreground">
-                <p>Preview (with maths formatting):</p>
-                <div
-                  className="mt-2 p-3 rounded border bg-white"
-                  dangerouslySetInnerHTML={{
-                    __html: extractedText
-                      .replace(/&/g, '&amp;')
-                      .replace(/</g, '&lt;')
-                      .replace(/>/g, '&gt;')
-                      // superscripts
-                      .replace(/([A-Za-z0-9)\]])\^\{([^}]+)\}/g, '$1<sup>$2</sup>')
-                      .replace(/([A-Za-z0-9)\]])\^(\-?[0-9]+)\b/g, '$1<sup>$2</sup>')
-                      // subscripts
-                      .replace(/([A-Za-z0-9)\]])_\{([^}]+)\}/g, '$1<sub>$2</sub>')
-                      .replace(/([A-Za-z])_(\d+)\b/g, '$1<sub>$2</sub>')
-                      .replace(/ms[–-]?\^?(-?1)\b/g, 'ms<sup>$1</sup>')
-                      .replace(/\n/g, '<br/>')
-                  }}
-                />
+                <p>Preview (LaTeX):</p>
+                <div className="mt-2 p-3 rounded border bg-white">
+                  {(() => {
+                    // Heuristic: convert simple a/b into \frac{a}{b} when safe (no spaces)
+                    const toFrac = (s: string) => s.replace(/\b([A-Za-z0-9]+)\/([A-Za-z0-9]+)\b/g, '\\frac{$1}{$2}');
+                    // Convert ^ and _ into LaTeX if not already braced
+                    const toLatex = (s: string) => toFrac(s)
+                      .replace(/\^(\-?\d+)\b/g, '^{$1}')
+                      .replace(/_([A-Za-z0-9]+)/g, '_{$1}');
+                    try {
+                      const html = katex.renderToString(toLatex(extractedText), { throwOnError: false, displayMode: true });
+                      return <div dangerouslySetInnerHTML={{ __html: html }} />;
+                    } catch {
+                      return <pre className="whitespace-pre-wrap">{extractedText}</pre>;
+                    }
+                  })()}
+                </div>
               </div>
               <div className="flex justify-between mt-2">
                 <p className="text-xs text-muted-foreground">
