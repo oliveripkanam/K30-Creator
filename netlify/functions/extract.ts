@@ -40,20 +40,29 @@ export default async (req: Request, _context: Context) => {
     // Convert base64 to bytes (Node-safe)
     const bytes = Buffer.from(fileBase64, 'base64');
 
-    // Submit analyze request
-    const analyzeUrl = `${endpoint}/formrecognizer/documentModels/prebuilt-read:analyze?api-version=${apiVersion}`;
-    const submit = await fetch(analyzeUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        "Ocp-Apim-Subscription-Key": key,
-      },
-      body: bytes,
-    });
+    // Try new Document Intelligence path first; fall back to Form Recognizer path
+    const analyzeUrls = [
+      `${endpoint}/documentintelligence/documentModels/prebuilt-read:analyze?api-version=2024-07-31`,
+      `${endpoint}/formrecognizer/documentModels/prebuilt-read:analyze?api-version=${apiVersion}`,
+    ];
 
-    if (!submit.ok) {
-      const t = await submit.text();
-      return respond(submit.status, { error: "analyze submit failed", details: t });
+    let submit: Response | null = null;
+    let lastErrText = '';
+    for (const url of analyzeUrls) {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Ocp-Apim-Subscription-Key": key,
+        },
+        body: bytes,
+      });
+      if (r.ok) { submit = r; break; }
+      lastErrText = await r.text().catch(() => '');
+    }
+
+    if (!submit) {
+      return respond(404, { error: "analyze submit failed", details: lastErrText });
     }
 
     const opLocation = submit.headers.get("operation-location") || submit.headers.get("Operation-Location");
