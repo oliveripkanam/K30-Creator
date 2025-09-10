@@ -59,7 +59,7 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
         try {
           setCurrentStep('Uploading to OCR engine...');
           setProgress(15);
-          const res = await fetch('/api/extract', {
+          let res = await fetch('/api/extract', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
@@ -69,6 +69,17 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
           });
           setCurrentStep('Processing document...');
           setProgress(55);
+          if (res.status === 404) {
+            // fallback to default netlify functions path
+            res = await fetch('/.netlify/functions/extract', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                fileBase64: question.fileData!.base64,
+                mimeType: question.fileData!.mimeType,
+              }),
+            });
+          }
           if (res.ok) {
             const data = await res.json();
             const text: string = data?.text || '';
