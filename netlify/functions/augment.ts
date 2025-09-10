@@ -64,7 +64,8 @@ export default async (req: Request, _context: Context) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        max_completion_tokens: 1000,
+        max_completion_tokens: 4000,
+        response_format: { type: 'text' },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: contentPayload },
@@ -77,7 +78,8 @@ export default async (req: Request, _context: Context) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: 600,
+          max_completion_tokens: 1500,
+          response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: userText },
