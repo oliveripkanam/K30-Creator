@@ -22,6 +22,8 @@ export default async (req: Request, _context: Context) => {
   const imageBase64 = (payload.imageBase64 || '').trim();
   const imageMimeType = (payload.imageMimeType || '').trim();
 
+  try { console.log('[fn augment] input', { textLen: text.length, hasImage: !!imageBase64, mime: imageMimeType }); } catch {}
+
   const endpoint = (getEnv('AZURE_OPENAI_ENDPOINT') || '').trim();
   const apiKey = getEnv('AZURE_OPENAI_API_KEY') || '';
   const deployment = (getEnv('AZURE_OPENAI_DEPLOYMENT') || '').trim();
@@ -84,12 +86,20 @@ export default async (req: Request, _context: Context) => {
       });
       res = res2;
     }
-    if (!res.ok) return respond(res.status, { error: 'Azure error', details: await res.text() });
+    if (!res.ok) {
+      const details = await res.text();
+      try { console.error('[fn augment] azure error', res.status, details); } catch {}
+      return respond(res.status, { error: 'Azure error', details });
+    }
     const data = await res.json();
     const content: string = data?.choices?.[0]?.message?.content || '';
-    if (!content?.trim()) return respond(502, { error: 'Empty augmentation response', azureData: data });
+    if (!content?.trim()) {
+      try { console.error('[fn augment] empty response', JSON.stringify(data).slice(0, 500)); } catch {}
+      return respond(502, { error: 'Empty augmentation response', azureData: data });
+    }
     return respond(200, { text: content.trim() });
   } catch (err: any) {
+    try { console.error('[fn augment] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
   }
 };
