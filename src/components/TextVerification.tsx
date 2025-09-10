@@ -150,35 +150,52 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
               />
               <div className="mt-4 text-sm text-muted-foreground">
                 <p>Preview (LaTeX):</p>
-                <div className="mt-2 p-3 rounded border bg-white max-h-72 overflow-auto">
+                <div className="mt-2 p-3 rounded border bg-white max-h-80 overflow-auto">
                   {(() => {
-                    const safeHtml = (s: string) => s
-                      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    const normalizeMath = (s: string) => s
-                      .replace(/[–—]/g, '-') // normalize dashes
-                      .replace(/\b([A-Za-z0-9]+)\/([A-Za-z0-9]+)\b/g, '\\frac{$1}{$2}') // simple a/b
+                    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    const norm = (s: string) => s
+                      .replace(/[–—]/g, '-')
+                      .replace(/\b([A-Za-z0-9]+)\s*\/\s*([A-Za-z0-9]+)\b/g, '\\frac{$1}{$2}')
                       .replace(/\^(\-?\d+)\b/g, '^{$1}')
                       .replace(/_([A-Za-z0-9]+)/g, '_{$1}');
-                    const isMathy = (line: string) => /[=^_\\frac]|\b(ms|m|s|kg|N|J|V|A|Pa|mol|Hz)\b/.test(line) || /\d\s*\/\s*\d/.test(line);
 
-                    const lines = extractedText.split(/\n+/);
-                    return (
-                      <div className="space-y-2">
-                        {lines.map((line, idx) => {
-                          const trimmed = line.trim();
-                          if (!trimmed) return <div key={idx} />;
-                          if (isMathy(trimmed)) {
+                    // Split line into plain/math segments using $...$, $$...$$, \( ... \), \[ ... \]
+                    const splitInline = (line: string) => {
+                      const parts: { math: boolean; display: boolean; text: string }[] = [];
+                      let s = line;
+                      const regex = /(\$\$[^$]*\$\$|\$[^$]*\$|\\\([^)]*\\\)|\\\[[^\]]*\\\])/g;
+                      let last = 0; let m: RegExpExecArray | null;
+                      while ((m = regex.exec(s))) {
+                        if (m.index > last) parts.push({ math: false, display: false, text: s.slice(last, m.index) });
+                        const token = m[0];
+                        if (token.startsWith('$$')) parts.push({ math: true, display: true, text: token.slice(2, -2) });
+                        else if (token.startsWith('$')) parts.push({ math: true, display: false, text: token.slice(1, -1) });
+                        else if (token.startsWith('\\[')) parts.push({ math: true, display: true, text: token.slice(2, -2) });
+                        else parts.push({ math: true, display: false, text: token.slice(2, -2) });
+                        last = regex.lastIndex;
+                      }
+                      if (last < s.length) parts.push({ math: false, display: false, text: s.slice(last) });
+                      return parts;
+                    };
+
+                    const renderLine = (line: string, key: number) => {
+                      const segs = splitInline(line);
+                      return (
+                        <div key={key} className="whitespace-pre-wrap">
+                          {segs.map((seg, i) => {
+                            if (!seg.math) return <span key={i} dangerouslySetInnerHTML={{ __html: escapeHtml(seg.text) }} />;
                             try {
-                              const html = katex.renderToString(normalizeMath(trimmed), { throwOnError: false, displayMode: true });
-                              return <div key={idx} dangerouslySetInnerHTML={{ __html: html }} />;
+                              const html = katex.renderToString(norm(seg.text), { throwOnError: false, displayMode: seg.display });
+                              return <span key={i} dangerouslySetInnerHTML={{ __html: html }} />;
                             } catch {
-                              return <div key={idx} className="font-mono">{trimmed}</div>;
+                              return <span key={i} className="font-mono">{seg.text}</span>;
                             }
-                          }
-                          return <div key={idx}>{safeHtml(trimmed)}</div>;
-                        })}
-                      </div>
-                    );
+                          })}
+                        </div>
+                      );
+                    };
+
+                    return <div className="space-y-2">{extractedText.split(/\n+/).map((l, i) => renderLine(l, i))}</div>;
                   })()}
                 </div>
               </div>
