@@ -26,7 +26,8 @@ export default async (req: Request, _context: Context) => {
 
   const endpoint = (getEnv('AZURE_OPENAI_ENDPOINT') || '').trim();
   const apiKey = getEnv('AZURE_OPENAI_API_KEY') || '';
-  const deployment = (getEnv('AZURE_OPENAI_DEPLOYMENT') || '').trim();
+  // Allow a dedicated (non‑reasoning) model for augmentation
+  const deployment = (getEnv('AUGMENT_OPENAI_DEPLOYMENT') || getEnv('AZURE_OPENAI_DEPLOYMENT') || '').trim();
   const apiVersion = (getEnv('AZURE_OPENAI_API_VERSION') || '2024-06-01').trim();
   if (!endpoint || !apiKey) return respond(500, { error: 'Missing Azure OpenAI config' });
 
