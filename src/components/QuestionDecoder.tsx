@@ -70,13 +70,17 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         const decode = async () => {
           try {
             console.log('[decoder] POST /api/ai-decode');
+            const payload = {
+              text: question.extractedText || question.content,
+              marks: Math.min(5, Math.max(1, question.marks)),
+              ...(question.fileData?.base64 && question.fileData?.mimeType
+                ? { imageBase64: question.fileData.base64, imageMimeType: question.fileData.mimeType }
+                : {})
+            };
             let res = await fetch('/api/ai-decode', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                text: question.extractedText || question.content,
-                marks: Math.min(5, Math.max(1, question.marks))
-              })
+              body: JSON.stringify(payload)
             });
             console.log('[decoder] /api/ai-decode status', res.status);
             if (res.status === 404) {
@@ -84,10 +88,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               res = await fetch('/api/decode', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  text: question.extractedText || question.content,
-                  marks: Math.min(5, Math.max(1, question.marks))
-                })
+                body: JSON.stringify(payload)
               });
               console.log('[decoder] /api/decode status', res.status);
             }
@@ -97,10 +98,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               res = await fetch('/.netlify/functions/ai-decode', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  text: question.extractedText || question.content,
-                  marks: Math.min(5, Math.max(1, question.marks))
-                })
+                body: JSON.stringify(payload)
               });
               console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
             }
@@ -109,10 +107,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               res = await fetch('/.netlify/functions/decode', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({
-                  text: question.extractedText || question.content,
-                  marks: Math.min(5, Math.max(1, question.marks))
-                })
+                body: JSON.stringify(payload)
               });
               console.log('[decoder] /.netlify/functions/decode status', res.status);
             }

@@ -27,6 +27,18 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
   const [isComplete, setIsComplete] = useState(false);
   const [extractedText, setExtractedText] = useState('');
 
+  const normalizeExtractedText = (raw: string): string => {
+    let t = (raw || '').replace(/\r/g, '');
+    // Drop obvious artefact lines
+    t = t.replace(/^\s*(Figure\s*\d+|[A-Z]$|[A-Z]\s*$|\d+\.)\s*$/gmi, '').trim();
+    // Join stacked fractions like 5\n12 -> 5/12, 12mg\n5 -> 12mg/5
+    t = t.replace(/(\b[\da-zA-Z]+(?:\s*[a-zA-Z])?)\s*\n\s*(\d+)\b/g, '$1/$2');
+    // Collapse multiple spaces/newlines
+    t = t.replace(/\n{2,}/g, '\n');
+    t = t.replace(/\s{2,}/g, ' ');
+    return t.trim();
+  };
+
   const steps = question.type === 'photo' 
     ? [
         'Analyzing image content with AI...',
@@ -83,10 +95,11 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
           if (res.ok) {
             const data = await res.json();
             const text: string = data?.text || '';
-            setExtractedText(text);
+            const cleaned = normalizeExtractedText(text);
+            setExtractedText(cleaned);
             setProgress(100);
             setIsComplete(true);
-            const updatedQuestion = { ...question, extractedText: text };
+            const updatedQuestion = { ...question, extractedText: cleaned };
             setTimeout(() => onTextExtracted(updatedQuestion), 1200);
             return;
           }
@@ -97,10 +110,11 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
         // Fallback simulation
         setCurrentStep('Falling back to simulated extraction...');
         const mockExtractedText = generateMockExtractedText(question);
-        setExtractedText(mockExtractedText);
+        const cleaned = normalizeExtractedText(mockExtractedText);
+        setExtractedText(cleaned);
         setProgress(100);
         setIsComplete(true);
-        const updatedQuestion = { ...question, extractedText: mockExtractedText };
+        const updatedQuestion = { ...question, extractedText: cleaned };
         setTimeout(() => onTextExtracted(updatedQuestion), 1200);
       };
       run();
