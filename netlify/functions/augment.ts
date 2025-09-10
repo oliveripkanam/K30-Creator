@@ -49,21 +49,23 @@ export default async (req: Request, _context: Context) => {
 - Remove headings like "Figure 1", stray labels (A, B) unless referenced, and page numbers.
 - Output ONLY the final cleaned problem text. No explanations.`;
 
-  const userContent: any[] = [ { type: 'text', text: `OCR text:\n${text}` } ];
-  if (imageBase64 && imageMimeType) {
-    userContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
-  }
+  const userText = `OCR text:\n${text}`;
+  const contentPayload: any = (imageBase64 && imageMimeType)
+    ? [
+        { type: 'text', text: userText },
+        { type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } }
+      ]
+    : userText;
 
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        // Keep moderate to avoid timeouts
         max_completion_tokens: 1000,
         messages: [
           { role: 'system', content: system },
-          { role: 'user', content: userContent },
+          { role: 'user', content: contentPayload },
         ]
       })
     });
