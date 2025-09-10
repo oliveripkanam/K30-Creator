@@ -61,7 +61,8 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
     if (imageBase64 && imageMimeType) {
-      messageContent.push({ type: 'input_image', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
+      // Azure Chat Completions expects { type: 'image_url', image_url: { url } }
+      messageContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
     }
 
     const res = await fetch(url, {

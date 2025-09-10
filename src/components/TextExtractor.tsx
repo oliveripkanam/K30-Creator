@@ -96,6 +96,31 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
             const data = await res.json();
             const text: string = data?.text || '';
             const cleaned = normalizeExtractedText(text);
+            // Optional augmentation with vision to include diagram values
+            try {
+              setCurrentStep('Augmenting with diagram (vision)...');
+              const aug = await fetch('/api/augment', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  text: cleaned,
+                  imageBase64: question.fileData?.base64,
+                  imageMimeType: question.fileData?.mimeType,
+                })
+              });
+              if (aug.ok) {
+                const augData = await aug.json();
+                const finalText = normalizeExtractedText(augData?.text || cleaned);
+                setExtractedText(finalText);
+                setProgress(100);
+                setIsComplete(true);
+                const updatedQuestion = { ...question, extractedText: finalText };
+                setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+                return;
+              }
+            } catch {}
+
+            // Fallback to cleaned OCR if augment fails
             setExtractedText(cleaned);
             setProgress(100);
             setIsComplete(true);
