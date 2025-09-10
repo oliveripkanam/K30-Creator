@@ -178,8 +178,20 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
                       return parts;
                     };
 
+                    const isImplicitMath = (s: string) => /[=≈≃≤≥]/.test(s) || /\b[A-Za-z0-9]+\s*\/\s*[A-Za-z0-9]+\b/.test(s) || /\b[i|j|k]\b/.test(s);
+
                     const renderLine = (line: string, key: number) => {
                       const segs = splitInline(line);
+                      const noDelimiters = segs.length === 1 && !segs[0].math;
+                      if (noDelimiters && isImplicitMath(line.trim())) {
+                        // Fallback: render the whole line as display math
+                        try {
+                          const html = katex.renderToString(norm(line.trim()), { throwOnError: false, displayMode: true });
+                          return <div key={key} dangerouslySetInnerHTML={{ __html: html }} />;
+                        } catch {
+                          return <div key={key} className="font-mono">{line}</div>;
+                        }
+                      }
                       return (
                         <div key={key} className="whitespace-pre-wrap">
                           {segs.map((seg, i) => {
