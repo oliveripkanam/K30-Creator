@@ -37,7 +37,8 @@ export default async (req: Request, _context: Context) => {
   if (!endpoint || !key) return respond(500, { error: "Missing AZURE_DOCINTEL_ENDPOINT or AZURE_DOCINTEL_KEY" });
 
   try {
-    const bytes = Uint8Array.from(atob(fileBase64), c => c.charCodeAt(0));
+    // Convert base64 to bytes (Node-safe)
+    const bytes = Buffer.from(fileBase64, 'base64');
 
     // Submit analyze request
     const analyzeUrl = `${endpoint}/formrecognizer/documentModels/prebuilt-read:analyze?api-version=${apiVersion}`;
@@ -72,12 +73,12 @@ export default async (req: Request, _context: Context) => {
         return respond(r.status, { error: "poll failed", details: t });
       }
       const json = await r.json();
-      const status = json.status || json."operationState";
-      if ((status || "").toLowerCase() === "succeeded") {
+      const status = ((json?.status || json?.operationState || '') as string).toLowerCase();
+      if (status === "succeeded") {
         result = json;
         break;
       }
-      if ((status || "").toLowerCase() === "failed") {
+      if (status === "failed") {
         return respond(502, { error: "analyze failed", details: json });
       }
       await new Promise(res => setTimeout(res, intervalMs));
