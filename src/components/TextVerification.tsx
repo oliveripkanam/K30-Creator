@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from './ui/button';
-import 'katex/dist/katex.min.css';
-import katex from 'katex';
+// LaTeX preview removed to simplify and avoid rendering issues
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Textarea } from './ui/textarea';
 import { Badge } from './ui/badge';
@@ -26,6 +25,59 @@ interface TextVerificationProps {
 export function TextVerification({ question, onVerified, onBack }: TextVerificationProps) {
   const [extractedText, setExtractedText] = useState(question.extractedText || '');
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Clean and format question text for readability and consistency
+  const beautifyQuestionText = (raw: string): string => {
+    let s = (raw || '').replace(/\u00A0/g, ' ');
+
+    // Normalize punctuation and dashes
+    s = s
+      .replace(/[–—−]/g, '-')
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'");
+
+    // Remove exam boilerplate markers like (2), (4), isolated digits lines
+    s = s
+      .split(/\n+/)
+      .filter((line) => !/^\s*(\(\s*\d+\s*\)|\d+)\s*$/.test(line))
+      .join('\n');
+
+    // Fix spacing around operators (excluding division which may be a fraction)
+    s = s.replace(/\s*([=+\-×÷±,:;])\s*/g, ' $1 ');
+
+    // Tight parentheses spacing
+    s = s.replace(/\s*([()])\s*/g, '$1');
+
+    // Ensure space before unit strings
+    s = s.replace(/(\d)([a-zA-Z°μ]+)/g, '$1 $2');
+
+    // Merge broken lines when previous doesn't end a sentence
+    const lines = s.split(/\n+/);
+    const merged: string[] = [];
+    for (const lineRaw of lines) {
+      const line = lineRaw.trim();
+      if (!line) continue;
+      if (merged.length === 0) {
+        merged.push(line);
+        continue;
+      }
+      const prev = merged[merged.length - 1];
+      const shouldJoin = !/[.!?]$/.test(prev) && /^[a-z0-9,;:)\]]/.test(line);
+      merged[merged.length - 1] = shouldJoin ? `${prev} ${line}` : prev + '\n' + line;
+    }
+    s = merged.join('');
+
+    // Newlines before subparts (a),(b),(c)...
+    s = s.replace(/\s*\(\s*([a-e])\s*\)/gi, '\n($1) ');
+
+    // Final whitespace normalization
+    s = s.replace(/[ \t]+/g, ' ')
+         .replace(/\s*\n\s*/g, '\n')
+         .replace(/\n{3,}/g, '\n\n')
+         .trim();
+
+    return s;
+  };
 
   const handleTextChange = (newText: string) => {
     setExtractedText(newText);
@@ -132,6 +184,12 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium">Question Text</label>
                 <div className="flex space-x-2">
+                  <Button variant="secondary" size="sm" onClick={() => { const t = beautifyQuestionText(extractedText); handleTextChange(t); }}>
+                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    Beautify
+                  </Button>
                   {hasChanges && (
                     <Button variant="outline" size="sm" onClick={handleReset}>
                       <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -148,85 +206,7 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
                 placeholder="Edit the extracted text here..."
                 className="min-h-40 bg-white border-amber-200 focus:border-amber-400"
               />
-              <div className="mt-4 text-sm text-muted-foreground">
-                <p>Preview (LaTeX):</p>
-                <div className="mt-2 p-3 rounded border bg-white max-h-80 overflow-auto font-sans">
-                  {(() => {
-                    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                    const norm = (s: string) => s
-                      .replace(/[–—]/g, '-')
-                      .replace(/\b([A-Za-z0-9]+)\s*\/\s*([A-Za-z0-9]+)\b/g, '\\frac{$1}{$2}')
-                      .replace(/\^(\-?\d+)\b/g, '^{$1}')
-                      .replace(/_([A-Za-z0-9]+)/g, '_{$1}');
-
-                    // Split line into plain/math segments using $...$, $$...$$, \( ... \), \[ ... \]
-                    const splitInline = (line: string) => {
-                      const parts: { math: boolean; display: boolean; text: string }[] = [];
-                      let s = line;
-                      const regex = /(\$\$[^$]*\$\$|\$[^$]*\$|\\\([^)]*\\\)|\\\[[^\]]*\\\])/g;
-                      let last = 0; let m: RegExpExecArray | null;
-                      while ((m = regex.exec(s))) {
-                        if (m.index > last) parts.push({ math: false, display: false, text: s.slice(last, m.index) });
-                        const token = m[0];
-                        if (token.startsWith('$$')) parts.push({ math: true, display: true, text: token.slice(2, -2) });
-                        else if (token.startsWith('$')) parts.push({ math: true, display: false, text: token.slice(1, -1) });
-                        else if (token.startsWith('\\[')) parts.push({ math: true, display: true, text: token.slice(2, -2) });
-                        else parts.push({ math: true, display: false, text: token.slice(2, -2) });
-                        last = regex.lastIndex;
-                      }
-                      if (last < s.length) parts.push({ math: false, display: false, text: s.slice(last) });
-                      return parts;
-                    };
-
-                    const isImplicitMath = (s: string) => /[=≈≃≤≥]/.test(s) || /\b[A-Za-z0-9]+\s*\/\s*[A-Za-z0-9]+\b/.test(s) || /\b[i|j|k]\b/.test(s);
-
-                    const renderLine = (line: string, key: number) => {
-                      const segs = splitInline(line);
-                      const noDelimiters = segs.length === 1 && !segs[0].math;
-                      if (noDelimiters && isImplicitMath(line.trim())) {
-                        // Try to auto-wrap only equation spans (lhs = rhs) instead of whole line
-                        const parts: React.ReactNode[] = [];
-                        let s = line; let pos = 0;
-                        const punct = /[.,;:)]/;
-                        while (true) {
-                          const eq = s.indexOf('=', pos);
-                          if (eq < 0) break;
-                          // Left boundary: from previous punctuation or start
-                          let left = pos; for (let i = eq - 1; i >= pos; i--) { if (punct.test(s[i])) { left = i + 1; break; } }
-                          // Right boundary: to next punctuation or end
-                          let right = s.length; for (let i = eq + 1; i < s.length; i++) { if (punct.test(s[i])) { right = i; break; } }
-                          if (left > pos) parts.push(<span key={`${key}-t-${pos}` } dangerouslySetInnerHTML={{ __html: escapeHtml(s.slice(pos, left)) }} />);
-                          const mathSeg = s.slice(left, right).trim();
-                          try {
-                            const html = katex.renderToString(norm(mathSeg), { throwOnError: false, displayMode: false });
-                            parts.push(<span key={`${key}-m-${left}`} dangerouslySetInnerHTML={{ __html: html }} />);
-                          } catch {
-                            parts.push(<span key={`${key}-f-${left}`} className="font-mono">{mathSeg}</span>);
-                          }
-                          pos = right;
-                        }
-                        if (pos < s.length) parts.push(<span key={`${key}-r`} dangerouslySetInnerHTML={{ __html: escapeHtml(s.slice(pos)) }} />);
-                        return <div key={key} className="whitespace-pre-wrap">{parts}</div>;
-                      }
-                      return (
-                        <div key={key} className="whitespace-pre-wrap">
-                          {segs.map((seg, i) => {
-                            if (!seg.math) return <span key={i} dangerouslySetInnerHTML={{ __html: escapeHtml(seg.text) }} />;
-                            try {
-                              const html = katex.renderToString(norm(seg.text), { throwOnError: false, displayMode: seg.display });
-                              return <span key={i} dangerouslySetInnerHTML={{ __html: html }} />;
-                            } catch {
-                              return <span key={i} className="font-mono">{seg.text}</span>;
-                            }
-                          })}
-                        </div>
-                      );
-                    };
-
-                    return <div className="space-y-2">{extractedText.split(/\n+/).map((l, i) => renderLine(l, i))}</div>;
-                  })()}
-                </div>
-              </div>
+              {/* LaTeX preview removed; use Beautify button above to clean text */}
               <div className="flex justify-between mt-2">
                 <p className="text-xs text-muted-foreground">
                   {extractedText.length} characters
