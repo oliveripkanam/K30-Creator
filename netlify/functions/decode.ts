@@ -15,7 +15,8 @@ export default async (req: Request) => {
 
   let payload: DecodeRequest; try { payload = await req.json(); } catch { return respond(400, { error: 'Invalid JSON body' }); }
   const text = (payload.text || '').toString().trim();
-  const marks = Math.max(1, Math.min(5, Number(payload.marks ?? 3)));
+  // Allow up to 6 marks to match the UI selector
+  const marks = Math.max(1, Math.min(6, Number(payload.marks ?? 3)));
   const imageBase64 = (payload.imageBase64 || '').trim();
   const imageMimeType = (payload.imageMimeType || '').trim();
   if (!text) return respond(400, { error: "Missing 'text'" });
@@ -225,7 +226,50 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       return respond(502, { error: 'Invalid model output', raw: content, parsed }); 
     }
     dbg('success parse', { mcqs: parsed.mcqs?.length, hasSolution: !!parsed.solution, usage });
-    return respond(200, { ...parsed, mcqs: parsed.mcqs.slice(0, marks), usage });
+
+    // If fewer MCQs than requested marks, try a lightweight top-up generation
+    if (Array.isArray(parsed.mcqs) && parsed.mcqs.length < marks) {
+      try {
+        const missing = Math.max(0, marks - parsed.mcqs.length);
+        if (missing > 0) {
+          const existingSummary = parsed.mcqs
+            .map(m => `step ${m.step}: ${String(m.question || '').slice(0, 120)}`)
+            .join('\n');
+          const topUpUser = `Problem text (same):\n${text}\n\nWe already have ${parsed.mcqs.length} steps (marks):\n${existingSummary}\n\nGenerate ONLY ${missing} additional MCQs to continue the progression, starting from step ${parsed.mcqs.length + 1} up to step ${marks}.\nEach MCQ must include: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step, calculationStep { formula, substitution, result } optional.\nReturn JSON with a single key 'mcqs' containing ONLY the new items. No solution field.`;
+
+          dbg('top-up request', { missing, startStep: parsed.mcqs.length + 1, target: marks });
+          const topRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+            body: JSON.stringify({
+              max_completion_tokens: Math.min(900, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
+              response_format: { type: 'text' },
+              messages: [
+                { role: 'system', content: system },
+                { role: 'user', content: [{ type: 'text', text: topUpUser }] }
+              ]
+            })
+          });
+          dbg('top-up status', topRes.status);
+          if (topRes.ok) {
+            const tuData = await topRes.json();
+            const tuChoice = tuData?.choices?.[0];
+            const tuContent: string = tuChoice?.message?.content || '';
+            try {
+              const tuJson = JSON.parse(tuContent) || {};
+              const add = Array.isArray(tuJson.mcqs) ? tuJson.mcqs : [];
+              if (add.length) {
+                parsed.mcqs = [...parsed.mcqs, ...add];
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
+    // Ensure we return exactly 'marks' MCQs
+    parsed.mcqs = (parsed.mcqs || []).slice(0, marks);
+    return respond(200, { ...parsed, usage });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
