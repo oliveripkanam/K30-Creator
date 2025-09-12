@@ -1,4 +1,4 @@
-import type { Context, Config } from "@netlify/functions";
+// Types from @netlify/functions removed for portability in local linting
 
 type ExtractRequest = {
   fileBase64: string; // raw base64, no data: prefix
@@ -17,7 +17,11 @@ const getEnv = (k: string) => {
   }
 };
 
-export default async (req: Request, _context: Context) => {
+// Simple in-memory cache (per function instance)
+const cache: Map<string, { text: string; ts: number }> = new Map();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export default async (req: Request) => {
   if (req.method !== "POST") return respond(405, { error: "Method not allowed" });
 
   let payload: ExtractRequest;
@@ -29,6 +33,16 @@ export default async (req: Request, _context: Context) => {
 
   const { fileBase64, mimeType } = payload || {};
   if (!fileBase64 || !mimeType) return respond(400, { error: "Missing fileBase64 or mimeType" });
+
+  // Cache key: SHA-256 of base64 + mime
+  const encoder = new TextEncoder();
+  const keyBytes = await crypto.subtle.digest('SHA-256', encoder.encode(`${mimeType}:${fileBase64}`));
+  const keyHex = Array.from(new Uint8Array(keyBytes)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const now = Date.now();
+  const hit = cache.get(keyHex);
+  if (hit && now - hit.ts < CACHE_TTL_MS) {
+    return respond(200, { text: hit.text, cached: true });
+  }
 
   const endpoint = (getEnv("AZURE_DOCINTEL_ENDPOINT") || "").replace(/\/$/, "");
   const key = getEnv("AZURE_DOCINTEL_KEY") || "";
@@ -131,12 +145,13 @@ export default async (req: Request, _context: Context) => {
       }
     }
     const content = blocks.join("\n");
+    cache.set(keyHex, { text: content, ts: now });
     return respond(200, { text: content });
   } catch (err: any) {
     return respond(500, { error: "server error", details: String(err?.message || err) });
   }
 };
 
-export const config: Config = { path: "/api/extract" };
+export const config = { path: "/api/extract" } as const;
 
 

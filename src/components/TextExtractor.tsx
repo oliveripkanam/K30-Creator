@@ -26,6 +26,7 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
   const [currentStep, setCurrentStep] = useState('');
   const [isComplete, setIsComplete] = useState(false);
   const [extractedText, setExtractedText] = useState('');
+  const startedRef = React.useRef<string | null>(null);
 
   const normalizeExtractedText = (raw: string): string => {
     let t = (raw || '').replace(/\r/g, '');
@@ -89,6 +90,9 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
       ];
 
   React.useEffect(() => {
+    // Prevent duplicate OCR runs for the same question id
+    if (startedRef.current === question.id) return;
+    startedRef.current = question.id;
     // Text path: no OCR
     if (question.type === 'text') {
       const updatedQuestion = { ...question, extractedText: question.content };
