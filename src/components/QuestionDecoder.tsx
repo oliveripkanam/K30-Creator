@@ -388,8 +388,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       };
     }
 
-    const numMCQs = Math.min(q.marks, mcqTemplates.length, 5);
-    const mcqs = mcqTemplates.slice(0, numMCQs).map((template, index) => ({
+    const numMCQs = Math.min(q.marks, mcqTemplates.length);
+    let mcqs = mcqTemplates.slice(0, numMCQs).map((template, index) => ({
       id: `mcq-${index}`,
       question: template.question,
       options: template.options,
@@ -399,6 +399,30 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       step: index + 1,
       calculationStep: template.calculationStep
     }));
+
+    // If we still have fewer MCQs than requested marks (e.g., template only has 3),
+    // synthesize light placeholder steps so the UI always matches the selected marks.
+    if (mcqs.length < q.marks) {
+      const base = mcqs.length;
+      for (let i = 0; i < q.marks - base; i++) {
+        const stepNum = base + i + 1;
+        mcqs.push({
+          id: `mock-fill-${Date.now()}-${i}`,
+          question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
+          options: [
+            'State the relevant formula/law',
+            'Substitute given values',
+            'Compute the intermediate result',
+            'None of the above'
+          ],
+          correctAnswer: 0,
+          hint: 'Recall the governing formula that links known to unknown.',
+          explanation: 'Choosing the correct relationship first ensures correct substitution and computation.',
+          step: stepNum,
+          calculationStep: undefined
+        });
+      }
+    }
 
     return { mcqs, solution: solutionData };
   };
