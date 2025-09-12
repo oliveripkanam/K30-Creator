@@ -7,6 +7,7 @@ type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const getEnv = (k: string) => { try { return (globalThis as any)?.Netlify?.env?.get?.(k) ?? process.env[k]; } catch { return process.env[k]; } };
+const dbg = (...args: any[]) => { try { console.log('[fn decode][dbg]', ...args); } catch {} };
 
 export default async (req: Request) => {
   try { console.log('[fn decode] invocation', { method: req.method, url: req.url }); } catch {}
@@ -18,6 +19,7 @@ export default async (req: Request) => {
   const imageBase64 = (payload.imageBase64 || '').trim();
   const imageMimeType = (payload.imageMimeType || '').trim();
   if (!text) return respond(400, { error: "Missing 'text'" });
+  dbg('input summary', { textLen: text.length, marks, hasImage: !!imageBase64, imageMimeType });
 
   // Bypass switch for routing checks
   if ((getEnv('DEBUG_BYPASS_AZURE') || '') === '1') {
@@ -57,7 +59,10 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
   };
 
   let url: string; try { url = buildUrl(rawEndpoint, deployment, apiVersion); } catch (e: any) { try { console.error('[fn decode] url build error', e); } catch {}; return respond(500, { error: e?.message || 'Invalid Azure config' }); }
-  try { console.log('[fn decode] config', { endpoint: rawEndpoint, deployment, apiVersion, url }); } catch {}
+  try {
+    const endpointHost = (() => { try { return new URL(rawEndpoint.includes('http') ? rawEndpoint : 'https://placeholder/' + rawEndpoint).host; } catch { return 'unknown'; } })();
+    console.log('[fn decode] config', { endpointHost, hasApiKey: !!apiKey, deployment, apiVersion, url });
+  } catch {}
 
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
@@ -68,6 +73,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
 
     const includedImage = messageContent.some((p) => p?.type === 'image_url');
     const maxTokens = Math.min(2000, Math.max(800, Number(getEnv('DECODER_MAX_TOKENS') || 1200)));
+    dbg('request summary (primary)', { includedImage, maxTokens, response_format: 'text', messageParts: messageContent.map(p => p?.type).join(',') });
     let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -80,6 +86,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         ]
       })
     });
+    dbg('response (primary) status', res.status);
 
     if (!res.ok && includedImage) {
       const details = await res.text().catch(() => '');
@@ -97,12 +104,13 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
           ]
         })
       });
+      dbg('response (retry text-only) status', res.status);
     }
 
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
     const data = await res.json();
-    try { console.log('[fn decode] azure response', JSON.stringify(data, null, 2)); } catch {}
+    try { dbg('azure response raw keys', Object.keys(data || {})); } catch {}
     const choice = data?.choices?.[0];
     let content: string = choice?.message?.content || choice?.delta?.content || '';
     let usage: any = (data as any)?.usage;
@@ -116,6 +124,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     } catch {}
     
     if (!content?.trim()) {
+      dbg('empty content on primary OK; retry with text format');
       try { console.warn('[fn decode] empty content with OK response; retrying with text format'); } catch {}
       const retryRes = await fetch(url, {
         method: 'POST',
@@ -129,6 +138,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
           ]
         })
       });
+      dbg('response (secondary text) status', retryRes.status);
       if (retryRes.ok) {
         const retryData = await retryRes.json();
         const retryChoice = retryData?.choices?.[0];
@@ -144,6 +154,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         if (altDeployment && altDeployment !== deployment) {
           try {
             const altUrl = buildUrl(rawEndpoint, altDeployment, apiVersion);
+            dbg('attempting alternate deployment', { altDeployment, altUrl });
             const altRes = await fetch(altUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -156,6 +167,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
                 ]
               })
             });
+            dbg('response (alt json/text) status', altRes.status);
             if (altRes.ok) {
               const altData = await altRes.json();
               const altChoice = altData?.choices?.[0];
@@ -179,6 +191,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
                   ]
                 })
               });
+              dbg('response (alt text) status', altTextRes.status);
               if (altTextRes.ok) {
                 const altTextData = await altTextRes.json();
                 const altTextChoice = altTextData?.choices?.[0];
@@ -193,6 +206,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         }
       }
       if (!content?.trim()) {
+        try { console.error('[fn decode] still empty after retries', { url, deployment, apiVersion, contentLen: content?.length }); } catch {}
         return respond(502, { error: 'Empty response from Azure', azureData: data });
       }
     }
@@ -207,9 +221,10 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       }
     }
     if (!parsed || !Array.isArray(parsed.mcqs) || !parsed.solution) { 
-      try { console.error('[fn decode] invalid model output', { content, parsed }); } catch {}; 
+      try { console.error('[fn decode] invalid model output', { contentPreview: content.slice(0, 300), parsed }); } catch {}; 
       return respond(502, { error: 'Invalid model output', raw: content, parsed }); 
     }
+    dbg('success parse', { mcqs: parsed.mcqs?.length, hasSolution: !!parsed.solution, usage });
     return respond(200, { ...parsed, mcqs: parsed.mcqs.slice(0, marks), usage });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
