@@ -73,7 +73,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
         max_completion_tokens: maxTokens,
-        response_format: { type: 'json_object' },
+        response_format: { type: 'text' },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: messageContent }
@@ -90,7 +90,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
           max_completion_tokens: Math.min(maxTokens, 1200),
-          response_format: { type: 'json_object' },
+          response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: [{ type: 'text', text: userText }] }
@@ -149,7 +149,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
               headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
               body: JSON.stringify({
                 max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
-                response_format: { type: 'json_object' },
+                response_format: { type: 'text' },
                 messages: [
                   { role: 'system', content: system },
                   { role: 'user', content: [{ type: 'text', text: userText }] }
