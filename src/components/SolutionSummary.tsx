@@ -37,6 +37,9 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
   };
 
   const tokensEarned = calculateTokensEarned();
+  // Read score from previous screen if available
+  let lastScore: { correct: number[]; wrong: number[] } = { correct: [], wrong: [] };
+  try { lastScore = (window as any).__k30_lastScore || lastScore; } catch {}
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
       {/* Header */}
@@ -194,6 +197,42 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
               <div>
                 <div className="text-2xl font-bold text-yellow-600">{tokensEarned}</div>
                 <div className="text-sm text-yellow-600">Tokens Earned</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Answer Accuracy */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Answer Accuracy</CardTitle>
+            <CardDescription>Which steps you got right and wrong</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-green-50 border border-green-200 rounded p-3">
+                <h4 className="text-sm font-medium text-green-800 mb-2">Correct Steps</h4>
+                {lastScore.correct.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {lastScore.correct.map((s) => (
+                      <span key={`c-${s}`} className="px-2 py-1 text-xs rounded bg-green-100 text-green-800 border border-green-300">Step {s}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-green-700">No steps marked correct.</p>
+                )}
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded p-3">
+                <h4 className="text-sm font-medium text-red-800 mb-2">Incorrect Steps</n4>
+                {lastScore.wrong.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {lastScore.wrong.map((s) => (
+                      <span key={`w-${s}`} className="px-2 py-1 text-xs rounded bg-red-100 text-red-800 border border-red-300">Step {s}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-red-700">Great job — none marked wrong.</p>
+                )}
               </div>
             </div>
           </CardContent>

@@ -43,6 +43,8 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
   const [showHint, setShowHint] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
   const [isAnswered, setIsAnswered] = useState(false);
+  // Track correctness for Solution page
+  const [score, setScore] = useState<{ correct: number[]; wrong: number[] }>(() => ({ correct: [], wrong: [] }));
 
   const currentMCQ = mcqs[currentIndex];
   const progress = ((currentIndex + 1) / mcqs.length) * 100;
@@ -57,10 +59,17 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
     if (selectedAnswer === null) return;
     setIsAnswered(true);
     setShowExplanation(true);
+    const wasCorrect = selectedAnswer === currentMCQ.correctAnswer;
+    setScore(prev => ({
+      correct: wasCorrect ? [...prev.correct, currentMCQ.step] : prev.correct,
+      wrong: !wasCorrect ? [...prev.wrong, currentMCQ.step] : prev.wrong,
+    }));
   };
 
   const handleNext = () => {
     if (isLastQuestion) {
+      // Stash score on navigation so Solution page can display it
+      try { (window as any).__k30_lastScore = score; } catch {}
       onComplete();
     } else {
       onNext();
