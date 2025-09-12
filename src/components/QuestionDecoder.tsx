@@ -57,114 +57,108 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   ];
 
   useEffect(() => {
+    let cancelled = false;
+    // Kick off progress animation independently
     let currentIndex = 0;
     const interval = setInterval(() => {
+      if (cancelled) return;
       if (currentIndex < steps.length) {
         setCurrentStep(steps[currentIndex]);
         setProgress(((currentIndex + 1) / steps.length) * 100);
         currentIndex++;
-      } else {
-        setIsComplete(true);
-        clearInterval(interval);
-        
-        // Try real Azure-backed decode first; fall back to mock templates on failure
-        const decode = async () => {
-          try {
-            console.log('[decoder] POST /api/ai-decode');
-            const payload = {
-              text: question.extractedText || question.content,
-              marks: Math.min(5, Math.max(1, question.marks)),
-              ...(question.fileData?.base64 && question.fileData?.mimeType
-                ? { imageBase64: question.fileData.base64, imageMimeType: question.fileData.mimeType }
-                : {})
-            };
-            let res = await fetch('/api/ai-decode', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload)
-            });
-            console.log('[decoder] /api/ai-decode status', res.status);
-            if (res.status === 404) {
-              console.log('[decoder] trying /api/decode');
-              res = await fetch('/api/decode', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
-              console.log('[decoder] /api/decode status', res.status);
-            }
-            if (res.status === 404) {
-              // try default Netlify functions path(s)
-              console.log('[decoder] trying /.netlify/functions/ai-decode');
-              res = await fetch('/.netlify/functions/ai-decode', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
-              console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
-            }
-            if (res.status === 404) {
-              console.log('[decoder] trying /.netlify/functions/decode');
-              res = await fetch('/.netlify/functions/decode', {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(payload)
-              });
-              console.log('[decoder] /.netlify/functions/decode status', res.status);
-            }
-            if (res.ok) {
-              const data = await res.json();
-              console.log('[decoder] response ok; keys', Object.keys(data || {}));
-              if (data?.usage) {
-                console.log('[decoder] token usage:', data.usage);
-              }
-              if (Array.isArray(data.mcqs) && data.solution) {
-                console.info('[decoder] using Azure result');
-                console.log('[decoder] mcqs:', data.mcqs);
-                console.log('[decoder] solution raw:', JSON.stringify(data.solution, null, 2));
-                
-                // Transform solution if it's in wrong format
-                let transformedSolution = data.solution;
-                if (typeof data.solution.finalAnswer === 'object') {
-                  console.log('[decoder] transforming solution object to strings');
-                  const answerObj = data.solution.finalAnswer;
-                  transformedSolution = {
-                    ...data.solution,
-                    finalAnswer: Object.entries(answerObj).map(([key, value]) => 
-                      `${key}: ${value}`).join(', '),
-                    workingSteps: data.solution.workingSteps || [],
-                    keyFormulas: data.solution.keyFormulas || []
-                  };
-                }
-                console.log('[decoder] transformed solution:', transformedSolution);
-                onDecoded(data.mcqs, transformedSolution);
-                return;
-              }
-            } else {
-              // Log error response body
-              try {
-                const errorData = await res.json();
-                console.error('[decoder] error response', res.status, errorData);
-              } catch {
-                const errorText = await res.text();
-                console.error('[decoder] error response', res.status, errorText);
-              }
-            }
-          } catch {
-            // ignore and fall back
-          }
-
-          // Fallback to local mock generation
-          console.warn('[decoder] falling back to local mock generation');
-          const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
-          onDecoded(generatedMCQs, solution);
-        };
-
-        decode();
       }
-    }, 1000);
+    }, 800);
 
-    return () => clearInterval(interval);
+    // Start decoding immediately
+    const decode = async () => {
+      try {
+        console.log('[decoder] POST /api/ai-decode');
+        const payload = {
+          text: question.extractedText || question.content,
+          marks: Math.min(6, Math.max(1, question.marks)),
+          ...(question.fileData?.base64 && question.fileData?.mimeType
+            ? { imageBase64: question.fileData.base64, imageMimeType: question.fileData.mimeType }
+            : {})
+        };
+        let res = await fetch('/api/ai-decode', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        console.log('[decoder] /api/ai-decode status', res.status);
+        if (res.status === 404) {
+          console.log('[decoder] trying /api/decode');
+          res = await fetch('/api/decode', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          console.log('[decoder] /api/decode status', res.status);
+        }
+        if (res.status === 404) {
+          console.log('[decoder] trying /.netlify/functions/ai-decode');
+          res = await fetch('/.netlify/functions/ai-decode', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
+        }
+        if (res.status === 404) {
+          console.log('[decoder] trying /.netlify/functions/decode');
+          res = await fetch('/.netlify/functions/decode', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          console.log('[decoder] /.netlify/functions/decode status', res.status);
+        }
+        if (res.ok) {
+          const data = await res.json();
+          console.log('[decoder] response ok; keys', Object.keys(data || {}));
+          if (data?.usage) console.log('[decoder] token usage:', data.usage);
+          if (Array.isArray(data.mcqs) && data.solution) {
+            let transformedSolution = data.solution;
+            if (typeof data.solution.finalAnswer === 'object') {
+              const answerObj = data.solution.finalAnswer;
+              transformedSolution = {
+                ...data.solution,
+                finalAnswer: Object.entries(answerObj).map(([key, value]) => `${key}: ${value}`).join(', '),
+                workingSteps: data.solution.workingSteps || [],
+                keyFormulas: data.solution.keyFormulas || []
+              };
+            }
+            if (!cancelled) {
+              setProgress(100);
+              setIsComplete(true);
+              onDecoded(data.mcqs, transformedSolution);
+            }
+            return;
+          }
+        } else {
+          try {
+            const errorData = await res.json();
+            console.error('[decoder] error response', res.status, errorData);
+          } catch {
+            const errorText = await res.text();
+            console.error('[decoder] error response', res.status, errorText);
+          }
+        }
+      } catch {}
+
+      // Fallback
+      if (!cancelled) {
+        console.warn('[decoder] falling back to local mock generation');
+        const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
+        setProgress(100);
+        setIsComplete(true);
+        onDecoded(generatedMCQs, solution);
+      }
+    };
+
+    decode();
+
+    return () => { cancelled = true; clearInterval(interval); };
   }, [question]);
 
   const generateSolutionMCQs = (q: Question): { mcqs: MCQ[], solution: SolutionSummary } => {

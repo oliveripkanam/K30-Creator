@@ -51,6 +51,9 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
     // Ensure space before unit strings
     s = s.replace(/(\d)([a-zA-Z°μ]+)/g, '$1 $2');
 
+    // Fix stray spaces before punctuation
+    s = s.replace(/\s+([.,;:!?])/g, '$1');
+
     // Merge broken lines when previous doesn't end a sentence
     const lines = s.split(/\n+/);
     const merged: string[] = [];
@@ -67,8 +70,12 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
     }
     s = merged.join('');
 
-    // Newlines before subparts (a),(b),(c)...
+    // Newlines before subparts (a),(b),(c)... and roman numerals (i),(ii)...
     s = s.replace(/\s*\(\s*([a-e])\s*\)/gi, '\n($1) ');
+    s = s.replace(/\s*\(\s*(i{1,3}|iv|v|vi{1,3})\s*\)/gi, '\n($1) ');
+
+    // Join broken decimals like 3 . 5 -> 3.5
+    s = s.replace(/(\d)\s*\.\s*(\d)/g, '$1.$2');
 
     // Final whitespace normalization
     s = s.replace(/[ \t]+/g, ' ')
@@ -184,7 +191,22 @@ export function TextVerification({ question, onVerified, onBack }: TextVerificat
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm font-medium">Question Text</label>
                 <div className="flex space-x-2">
-                  <Button variant="secondary" size="sm" onClick={() => { const t = beautifyQuestionText(extractedText); handleTextChange(t); }}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      const before = extractedText;
+                      const t = beautifyQuestionText(before);
+                      if (t !== before) {
+                        handleTextChange(t);
+                      } else {
+                        // Even if identical, force mark as touched so user sees it did something
+                        setHasChanges(true);
+                      }
+                      try { console.log('[verify] Beautify applied'); } catch {}
+                    }}
+                  >
                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                     </svg>
