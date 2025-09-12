@@ -70,7 +70,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        max_completion_tokens: 8000,
+        max_completion_tokens: 15000,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
