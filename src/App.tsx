@@ -165,8 +165,12 @@ export default function App() {
 
   const handleTextExtracted = (updatedQuestion: Question) => {
     setCurrentQuestion(updatedQuestion);
-    // Immediately start decoding to reduce perceived wait; allow edit via Back
-    setCurrentState('decoder');
+    // For photos and files, go to verification step before decoding
+    if (updatedQuestion.type !== 'text') {
+      setCurrentState('verify');
+    } else {
+      setCurrentState('decoder');
+    }
   };
 
   const handleTextVerified = (verifiedQuestion: Question) => {
