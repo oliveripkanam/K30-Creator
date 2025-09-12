@@ -130,7 +130,8 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
             // Optional augmentation with vision to include diagram values
             try {
               setCurrentStep('Augmenting with diagram (vision)...');
-              const aug = await fetch('/api/augment', {
+              console.log('[extractor] POST /api/augment');
+              let aug = await fetch('/api/augment', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({
@@ -139,6 +140,21 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
                   imageMimeType: question.fileData?.mimeType,
                 })
               });
+              if (aug.status === 404) {
+                console.log('[extractor] trying /.netlify/functions/augment');
+                aug = await fetch('/.netlify/functions/augment', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({
+                    text: cleaned,
+                    imageBase64: question.fileData?.base64,
+                    imageMimeType: question.fileData?.mimeType,
+                  })
+                });
+                console.log('[extractor] /.netlify/functions/augment status', aug.status);
+              } else {
+                console.log('[extractor] /api/augment status', aug.status);
+              }
               if (aug.ok) {
                 const augData = await aug.json();
                 const finalText = normalizeExtractedText(augData?.text || cleaned);
@@ -149,6 +165,10 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
                 setTimeout(() => onTextExtracted(updatedQuestion), 1200);
                 return;
               }
+              try {
+                const err = await aug.text();
+                console.warn('[extractor] augment error body', err);
+              } catch {}
             } catch {}
 
             // Fallback to cleaned OCR if augment fails

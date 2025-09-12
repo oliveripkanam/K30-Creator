@@ -1,4 +1,4 @@
-import type { Context, Config } from "@netlify/functions";
+// Types from @netlify/functions removed for portability in local linting
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[] };
@@ -6,9 +6,9 @@ type DecodeRequest = { text: string; marks?: number; imageBase64?: string; image
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
-const getEnv = (k: string) => { try { /* @ts-ignore */ return Netlify?.env?.get?.(k) ?? process.env[k]; } catch { return process.env[k]; } };
+const getEnv = (k: string) => { try { return (globalThis as any)?.Netlify?.env?.get?.(k) ?? process.env[k]; } catch { return process.env[k]; } };
 
-export default async (req: Request, _context: Context) => {
+export default async (req: Request) => {
   try { console.log('[fn decode] invocation', { method: req.method, url: req.url }); } catch {}
   if (req.method !== 'POST') return respond(405, { error: 'Method not allowed' });
 
@@ -60,12 +60,13 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
 
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
-    if (imageBase64 && imageMimeType) {
+    if (imageBase64 && imageMimeType && /^image\//i.test(imageMimeType)) {
       // Azure Chat Completions expects { type: 'image_url', image_url: { url } }
       messageContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
     }
 
-    const res = await fetch(url, {
+    const includedImage = messageContent.some((p) => p?.type === 'image_url');
+    let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
@@ -77,6 +78,25 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         ]
       })
     });
+
+    if (!res.ok && includedImage) {
+      const details = await res.text().catch(() => '');
+      try { console.warn('[fn decode] azure image request failed; retrying text-only', res.status, details?.slice(0, 300)); } catch {}
+      // Retry without image attachment
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          max_completion_tokens: 4000,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: [{ type: 'text', text: userText }] }
+          ]
+        })
+      });
+    }
+
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
 
     const data = await res.json();
@@ -116,6 +136,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
   }
 };
 
-export const config: Config = { path: '/api/ai-decode' };
+export const config = { path: '/api/ai-decode' } as const;
 
 

@@ -1,4 +1,4 @@
-import type { Context, Config } from "@netlify/functions";
+// Types from @netlify/functions removed for portability in local linting
 
 type AugmentRequest = {
   text: string;
@@ -9,9 +9,9 @@ type AugmentRequest = {
 const respond = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-const getEnv = (k: string) => { try { /* @ts-ignore */ return Netlify?.env?.get?.(k) ?? process.env[k]; } catch { return process.env[k]; } };
+const getEnv = (k: string) => { try { return (globalThis as any)?.Netlify?.env?.get?.(k) ?? process.env[k]; } catch { return process.env[k]; } };
 
-export default async (req: Request, _context: Context) => {
+export default async (req: Request) => {
   if (req.method !== 'POST') return respond(405, { error: 'Method not allowed' });
 
   let payload: AugmentRequest;
@@ -53,7 +53,7 @@ export default async (req: Request, _context: Context) => {
 - Output ONLY the final cleaned problem text. No explanations.`;
 
   const userText = `OCR text:\n${text}`;
-  const contentPayload: any = (imageBase64 && imageMimeType)
+  const contentPayload: any = (imageBase64 && imageMimeType && /^image\//i.test(imageMimeType))
     ? [
         { type: 'text', text: userText },
         { type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } }
@@ -107,6 +107,6 @@ export default async (req: Request, _context: Context) => {
   }
 };
 
-export const config: Config = { path: '/api/augment' };
+export const config = { path: '/api/augment' } as const;
 
 
