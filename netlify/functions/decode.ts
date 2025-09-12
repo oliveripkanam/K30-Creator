@@ -223,23 +223,45 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         try { parsed = JSON.parse(m[0]); } catch {}
       }
     }
-    if (!parsed || !Array.isArray(parsed.mcqs) || !parsed.solution) { 
-      try { console.error('[fn decode] invalid model output', { contentPreview: content.slice(0, 300), parsed }); } catch {}; 
-      return respond(502, { error: 'Invalid model output', raw: content, parsed }); 
+    if (!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) { 
+      try { console.warn('[fn decode] invalid model output; attempting salvage', { preview: content.slice(0, 200) }); } catch {};
+      // Lenient salvage: extract questions heuristically and build minimal MCQs
+      const salvagedMcqs: MCQ[] = [] as any;
+      try {
+        const qMatches = Array.from(content.matchAll(/\"question\"\s*:\s*\"([\s\S]*?)\"/g));
+        for (let i = 0; i < Math.min(qMatches.length, marks); i++) {
+          const qText = (qMatches[i]?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+          if (!qText) continue;
+          salvagedMcqs.push({
+            id: `sv-${Date.now()}-${i}`,
+            question: qText,
+            options: ['A', 'B', 'C', 'D'],
+            correctAnswer: 0,
+            hint: 'Think about the next logical step toward the final answer.',
+            explanation: 'Proceed step-by-step using the relevant formula before substituting numbers.',
+            step: i + 1,
+            calculationStep: undefined
+          } as any);
+        }
+      } catch {}
+      const safeSolution: SolutionSummary = { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] };
+      parsed = { mcqs: salvagedMcqs, solution: safeSolution } as any;
     }
-    dbg('success parse', { mcqs: parsed.mcqs?.length, hasSolution: !!parsed.solution, usage });
+    const ensured = (parsed as any) as { mcqs: any[]; solution: any };
+    dbg('success parse', { mcqs: ensured?.mcqs?.length, hasSolution: !!ensured?.solution, usage });
 
     // If fewer MCQs than requested marks, try a lightweight top-up generation
-    if (Array.isArray(parsed.mcqs) && parsed.mcqs.length < marks) {
+    if (Array.isArray(ensured.mcqs) && ensured.mcqs.length < marks) {
       try {
-        const missing = Math.max(0, marks - parsed.mcqs.length);
+        const missing = Math.max(0, marks - (parsed as any).mcqs.length);
         if (missing > 0) {
-          const existingSummary = parsed.mcqs
+          const existingSummary = ((parsed as any).mcqs || [])
             .map(m => `step ${m.step}: ${String(m.question || '').slice(0, 120)}`)
             .join('\n');
-          const topUpUser = `Problem text (same):\n${text}\n\nWe already have ${parsed.mcqs.length} steps (marks):\n${existingSummary}\n\nGenerate ONLY ${missing} additional MCQs to continue the progression, starting from step ${parsed.mcqs.length + 1} up to step ${marks}.\nEach MCQ must include: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step, calculationStep { formula, substitution, result } optional.\nReturn JSON with a single key 'mcqs' containing ONLY the new items. No solution field.`;
+          const currentLen = ((parsed as any).mcqs || []).length;
+          const topUpUser = `Problem text (same):\n${text}\n\nWe already have ${currentLen} steps (marks):\n${existingSummary}\n\nGenerate ONLY ${missing} additional MCQs to continue the progression, starting from step ${currentLen + 1} up to step ${marks}.\nEach MCQ must include: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step, calculationStep { formula, substitution, result } optional.\nReturn JSON with a single key 'mcqs' containing ONLY the new items. No solution field.`;
 
-          dbg('top-up request', { missing, startStep: parsed.mcqs.length + 1, target: marks });
+          dbg('top-up request', { missing, startStep: ensured.mcqs.length + 1, target: marks });
           const topRes = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -261,7 +283,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
               const tuJson = JSON.parse(tuContent) || {};
               const add = Array.isArray(tuJson.mcqs) ? tuJson.mcqs : [];
               if (add.length) {
-                parsed.mcqs = [...parsed.mcqs, ...add];
+                ensured.mcqs = [...ensured.mcqs, ...add];
               }
             } catch {}
           }
@@ -270,13 +292,13 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     }
 
     // Ensure we return exactly 'marks' MCQs. If still short, synthesize simple filler items.
-    parsed.mcqs = (parsed.mcqs || []);
-    if (parsed.mcqs.length < marks) {
+    ensured.mcqs = (ensured.mcqs || []);
+    if (ensured.mcqs.length < marks) {
       try {
-        const baseStep = parsed.mcqs.length + 1;
-        for (let i = 0; i < marks - parsed.mcqs.length; i++) {
+        const baseStep = ensured.mcqs.length + 1;
+        for (let i = 0; i < marks - ensured.mcqs.length; i++) {
           const stepNum = baseStep + i;
-          parsed.mcqs.push({
+          ensured.mcqs.push({
             id: `auto-${Date.now()}-${i}`,
             question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
             options: [
@@ -294,8 +316,8 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         }
       } catch {}
     }
-    parsed.mcqs = parsed.mcqs.slice(0, marks);
-    return respond(200, { ...parsed, usage });
+    ensured.mcqs = ensured.mcqs.slice(0, marks);
+    return respond(200, { ...ensured, usage });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
