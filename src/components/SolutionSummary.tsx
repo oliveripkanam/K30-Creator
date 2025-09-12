@@ -223,7 +223,7 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
                 )}
               </div>
               <div className="bg-red-50 border border-red-200 rounded p-3">
-                <h4 className="text-sm font-medium text-red-800 mb-2">Incorrect Steps</n4>
+                <h4 className="text-sm font-medium text-red-800 mb-2">Incorrect Steps</h4>
                 {lastScore.wrong.length ? (
                   <div className="flex flex-wrap gap-2">
                     {lastScore.wrong.map((s) => (
