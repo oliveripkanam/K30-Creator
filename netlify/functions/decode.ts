@@ -136,12 +136,64 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         if (retryContent?.trim()) {
           content = retryContent;
           usage = (retryData as any)?.usage || usage;
-        } else {
-          return respond(502, { error: 'Empty response from Azure', azureData: data });
         }
-      } else {
-        const details = await retryRes.text().catch(() => '');
-        return respond(retryRes.status, { error: 'Azure error (retry)', details });
+      }
+      // If still empty, try alternate non-reasoning deployment if available
+      if (!content?.trim()) {
+        const altDeployment = (getEnv('DECODER_OPENAI_FALLBACK_DEPLOYMENT') || getEnv('AUGMENT_OPENAI_DEPLOYMENT') || '').trim();
+        if (altDeployment && altDeployment !== deployment) {
+          try {
+            const altUrl = buildUrl(rawEndpoint, altDeployment, apiVersion);
+            const altRes = await fetch(altUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+              body: JSON.stringify({
+                max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
+                response_format: { type: 'json_object' },
+                messages: [
+                  { role: 'system', content: system },
+                  { role: 'user', content: [{ type: 'text', text: userText }] }
+                ]
+              })
+            });
+            if (altRes.ok) {
+              const altData = await altRes.json();
+              const altChoice = altData?.choices?.[0];
+              const altContent: string = altChoice?.message?.content || altChoice?.delta?.content || '';
+              if (altContent?.trim()) {
+                content = altContent;
+                usage = (altData as any)?.usage || usage;
+              }
+            }
+            if (!content?.trim()) {
+              // Final fallback: alt deployment with text response
+              const altTextRes = await fetch(altUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+                body: JSON.stringify({
+                  max_completion_tokens: Math.min(1000, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
+                  response_format: { type: 'text' },
+                  messages: [
+                    { role: 'system', content: system },
+                    { role: 'user', content: [{ type: 'text', text: `${userText}\n\nReturn ONLY the JSON object with keys mcqs and solution.` }] }
+                  ]
+                })
+              });
+              if (altTextRes.ok) {
+                const altTextData = await altTextRes.json();
+                const altTextChoice = altTextData?.choices?.[0];
+                const altTextContent: string = altTextChoice?.message?.content || altTextChoice?.delta?.content || '';
+                if (altTextContent?.trim()) {
+                  content = altTextContent;
+                  usage = (altTextData as any)?.usage || usage;
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+      if (!content?.trim()) {
+        return respond(502, { error: 'Empty response from Azure', azureData: data });
       }
     }
     

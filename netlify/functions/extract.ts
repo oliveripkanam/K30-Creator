@@ -18,7 +18,7 @@ const getEnv = (k: string) => {
 };
 
 // Simple in-memory cache (per function instance)
-const cache: Map<string, { text: string; ts: number }> = new Map();
+const cache: Map<string, { text: string; pages?: number; ts: number }> = new Map();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export default async (req: Request) => {
@@ -41,7 +41,7 @@ export default async (req: Request) => {
   const now = Date.now();
   const hit = cache.get(keyHex);
   if (hit && now - hit.ts < CACHE_TTL_MS) {
-    return respond(200, { text: hit.text, cached: true });
+    return respond(200, { text: hit.text, pages: hit.pages ?? undefined, cached: true });
   }
 
   const endpoint = (getEnv("AZURE_DOCINTEL_ENDPOINT") || "").replace(/\/$/, "");
@@ -124,11 +124,13 @@ export default async (req: Request) => {
 
     if (!result) return respond(504, { error: "timeout waiting for analysis" });
 
-    // Extract text from analyzeResult
+    // Extract text and page count from analyzeResult
     const blocks: string[] = [];
     const analyze = result.analyzeResult || result.documents || result;
+    let pagesCount = 0;
     if (analyze?.pages) {
       // v3.x structure
+      pagesCount = Array.isArray(analyze.pages) ? analyze.pages.length : 0;
       for (const p of analyze.pages) {
         const lines = p.lines || [];
         for (const line of lines) {
@@ -137,6 +139,7 @@ export default async (req: Request) => {
       }
     } else if (analyze?.readResults) {
       // v2.1 structure
+      pagesCount = Array.isArray(analyze.readResults) ? analyze.readResults.length : 0;
       for (const rr of analyze.readResults) {
         const lines = rr.lines || [];
         for (const line of lines) {
@@ -145,8 +148,8 @@ export default async (req: Request) => {
       }
     }
     const content = blocks.join("\n");
-    cache.set(keyHex, { text: content, ts: now });
-    return respond(200, { text: content });
+    cache.set(keyHex, { text: content, pages: pagesCount, ts: now });
+    return respond(200, { text: content, pages: pagesCount });
   } catch (err: any) {
     return respond(500, { error: "server error", details: String(err?.message || err) });
   }
