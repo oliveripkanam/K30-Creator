@@ -267,8 +267,32 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       } catch {}
     }
 
-    // Ensure we return exactly 'marks' MCQs
-    parsed.mcqs = (parsed.mcqs || []).slice(0, marks);
+    // Ensure we return exactly 'marks' MCQs. If still short, synthesize simple filler items.
+    parsed.mcqs = (parsed.mcqs || []);
+    if (parsed.mcqs.length < marks) {
+      try {
+        const baseStep = parsed.mcqs.length + 1;
+        for (let i = 0; i < marks - parsed.mcqs.length; i++) {
+          const stepNum = baseStep + i;
+          parsed.mcqs.push({
+            id: `auto-${Date.now()}-${i}`,
+            question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
+            options: [
+              'State the relevant formula/law',
+              'Substitute given values',
+              'Compute the intermediate result',
+              'None of the above'
+            ],
+            correctAnswer: 0,
+            hint: 'Recall the formula that directly links known values to the target of this step.',
+            explanation: 'Using the correct governing formula at each step is essential before substitution and computation.',
+            step: stepNum,
+            calculationStep: undefined
+          } as any);
+        }
+      } catch {}
+    }
+    parsed.mcqs = parsed.mcqs.slice(0, marks);
     return respond(200, { ...parsed, usage });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}

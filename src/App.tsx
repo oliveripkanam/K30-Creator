@@ -165,12 +165,8 @@ export default function App() {
 
   const handleTextExtracted = (updatedQuestion: Question) => {
     setCurrentQuestion(updatedQuestion);
-    // For photos and files, go to verification step
-    if (updatedQuestion.type !== 'text') {
-      setCurrentState('verify');
-    } else {
-      setCurrentState('decoder');
-    }
+    // Immediately start decoding to reduce perceived wait; allow edit via Back
+    setCurrentState('decoder');
   };
 
   const handleTextVerified = (verifiedQuestion: Question) => {
