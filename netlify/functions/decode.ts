@@ -26,7 +26,8 @@ export default async (req: Request) => {
 
   const rawEndpoint = (getEnv('AZURE_OPENAI_ENDPOINT') || '').trim();
   const apiKey = getEnv('AZURE_OPENAI_API_KEY') || '';
-  const deployment = (getEnv('AZURE_OPENAI_DEPLOYMENT') || '').trim();
+  // Prefer a dedicated non-reasoning model for decoding to reduce latency
+  const deployment = (getEnv('DECODER_OPENAI_DEPLOYMENT') || getEnv('AZURE_OPENAI_DEPLOYMENT') || '').trim();
   const apiVersion = (getEnv('AZURE_OPENAI_API_VERSION') || '2024-06-01').trim();
   if (!rawEndpoint || !apiKey) {
     try { console.error('[fn decode] missing config', { hasEndpoint: !!rawEndpoint, hasKey: !!apiKey }); } catch {}
@@ -66,11 +67,12 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     }
 
     const includedImage = messageContent.some((p) => p?.type === 'image_url');
+    const maxTokens = Math.min(2000, Math.max(800, Number(getEnv('DECODER_MAX_TOKENS') || 1200)));
     let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        max_completion_tokens: 15000,
+        max_completion_tokens: maxTokens,
         response_format: { type: 'json_object' },
         messages: [
           { role: 'system', content: system },
@@ -87,7 +89,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: 4000,
+          max_completion_tokens: Math.min(maxTokens, 1200),
           response_format: { type: 'json_object' },
           messages: [
             { role: 'system', content: system },
