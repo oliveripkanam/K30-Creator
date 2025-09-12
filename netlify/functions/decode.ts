@@ -76,6 +76,19 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     }
   };
 
+  const safeFetch = async (input: RequestInfo | URL, init: any, timeoutMs: number): Promise<Response> => {
+    try {
+      return await fetchWithTimeout(input, init, timeoutMs);
+    } catch (err: any) {
+      const msg = String(err?.message || err);
+      if ((err?.name === 'AbortError') || /aborted|abort/i.test(msg)) {
+        try { console.warn('[fn decode] request aborted by timeout'); } catch {}
+        return new Response(JSON.stringify({ error: 'timeout' }), { status: 504, headers: { 'content-type': 'application/json' } });
+      }
+      throw err;
+    }
+  };
+
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
     if (imageBase64 && imageMimeType && /^image\//i.test(imageMimeType)) {
@@ -87,7 +100,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     const maxTokens = Math.min(1500, Math.max(600, Number(getEnv('DECODER_MAX_TOKENS') || 900)));
     const timeoutMs = Math.max(5000, Math.min(15000, Number(getEnv('DECODER_TIMEOUT_MS') || 9000)));
     dbg('request summary (primary)', { includedImage, maxTokens, response_format: 'text', messageParts: messageContent.map(p => p?.type).join(',') });
-    let res = await fetchWithTimeout(url, {
+    let res = await safeFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
@@ -105,7 +118,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       const details = await res.text().catch(() => '');
       try { console.warn('[fn decode] azure image request failed; retrying text-only', res.status, details?.slice(0, 300)); } catch {}
       // Retry without image attachment
-      res = await fetchWithTimeout(url, {
+      res = await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
@@ -139,7 +152,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     if (!content?.trim()) {
       dbg('empty content on primary OK; retry with text format');
       try { console.warn('[fn decode] empty content with OK response; retrying with text format'); } catch {}
-      const retryRes = await fetchWithTimeout(url, {
+      const retryRes = await safeFetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
@@ -168,7 +181,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
           try {
             const altUrl = buildUrl(rawEndpoint, altDeployment, apiVersion);
             dbg('attempting alternate deployment', { altDeployment, altUrl });
-            const altRes = await fetchWithTimeout(altUrl, {
+            const altRes = await safeFetch(altUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
               body: JSON.stringify({
@@ -192,7 +205,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
             }
             if (!content?.trim()) {
               // Final fallback: alt deployment with text response
-              const altTextRes = await fetchWithTimeout(altUrl, {
+              const altTextRes = await safeFetch(altUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
                 body: JSON.stringify({
