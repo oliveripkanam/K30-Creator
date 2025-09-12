@@ -11,6 +11,7 @@ interface Question {
   marks: number;
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
+  fileData?: { base64: string; mimeType: string; name: string };
 }
 
 interface MCQ {
@@ -114,6 +115,9 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             if (res.ok) {
               const data = await res.json();
               console.log('[decoder] response ok; keys', Object.keys(data || {}));
+              if (data?.usage) {
+                console.log('[decoder] token usage:', data.usage);
+              }
               if (Array.isArray(data.mcqs) && data.solution) {
                 console.info('[decoder] using Azure result');
                 console.log('[decoder] mcqs:', data.mcqs);

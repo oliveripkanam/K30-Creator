@@ -100,7 +100,7 @@ export default async (req: Request) => {
       try { console.error('[fn augment] empty response', JSON.stringify(data).slice(0, 500)); } catch {}
       return respond(502, { error: 'Empty augmentation response', azureData: data });
     }
-    return respond(200, { text: content.trim() });
+    return respond(200, { text: content.trim(), usage: data?.usage });
   } catch (err: any) {
     try { console.error('[fn augment] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });

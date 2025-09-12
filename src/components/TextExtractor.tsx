@@ -161,6 +161,9 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
               }
               if (aug.ok) {
                 const augData = await aug.json();
+                if (augData?.usage) {
+                  console.log('[extractor] token usage (augment):', augData.usage);
+                }
                 const finalText = normalizeExtractedText(augData?.text || cleaned);
                 setExtractedText(finalText);
                 setProgress(100);

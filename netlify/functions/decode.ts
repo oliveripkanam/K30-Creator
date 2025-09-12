@@ -104,7 +104,8 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     const data = await res.json();
     try { console.log('[fn decode] azure response', JSON.stringify(data, null, 2)); } catch {}
     const choice = data?.choices?.[0];
-    const content: string = choice?.message?.content || choice?.delta?.content || '';
+    let content: string = choice?.message?.content || choice?.delta?.content || '';
+    let usage: any = (data as any)?.usage;
     try { 
       console.log('[fn decode] choice details:', {
         finish_reason: choice?.finish_reason,
@@ -115,7 +116,33 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     } catch {}
     
     if (!content?.trim()) {
-      return respond(502, { error: 'Empty response from Azure', azureData: data });
+      try { console.warn('[fn decode] empty content with OK response; retrying with text format'); } catch {}
+      const retryRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
+          response_format: { type: 'text' },
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: [{ type: 'text', text: `${userText}\n\nReturn ONLY the JSON object with keys mcqs and solution.` }] }
+          ]
+        })
+      });
+      if (retryRes.ok) {
+        const retryData = await retryRes.json();
+        const retryChoice = retryData?.choices?.[0];
+        const retryContent: string = retryChoice?.message?.content || retryChoice?.delta?.content || '';
+        if (retryContent?.trim()) {
+          content = retryContent;
+          usage = (retryData as any)?.usage || usage;
+        } else {
+          return respond(502, { error: 'Empty response from Azure', azureData: data });
+        }
+      } else {
+        const details = await retryRes.text().catch(() => '');
+        return respond(retryRes.status, { error: 'Azure error (retry)', details });
+      }
     }
     
     let parsed: DecodeResponse | null = null;
@@ -131,7 +158,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       try { console.error('[fn decode] invalid model output', { content, parsed }); } catch {}; 
       return respond(502, { error: 'Invalid model output', raw: content, parsed }); 
     }
-    return respond(200, { ...parsed, mcqs: parsed.mcqs.slice(0, marks) });
+    return respond(200, { ...parsed, mcqs: parsed.mcqs.slice(0, marks), usage });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
