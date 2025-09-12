@@ -65,29 +65,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     console.log('[fn decode] config', { endpointHost, hasApiKey: !!apiKey, deployment, apiVersion, url });
   } catch {}
 
-  // Small helper to enforce an upper bound on Azure latency to avoid Netlify 504s
-  const fetchWithTimeout = async (input: RequestInfo | URL, init: any, timeoutMs: number): Promise<Response> => {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), Math.max(1000, timeoutMs));
-    try {
-      return await fetch(input, { ...init, signal: controller.signal });
-    } finally {
-      clearTimeout(t);
-    }
-  };
-
-  const safeFetch = async (input: RequestInfo | URL, init: any, timeoutMs: number): Promise<Response> => {
-    try {
-      return await fetchWithTimeout(input, init, timeoutMs);
-    } catch (err: any) {
-      const msg = String(err?.message || err);
-      if ((err?.name === 'AbortError') || /aborted|abort/i.test(msg)) {
-        try { console.warn('[fn decode] request aborted by timeout'); } catch {}
-        return new Response(JSON.stringify({ error: 'timeout' }), { status: 504, headers: { 'content-type': 'application/json' } });
-      }
-      throw err;
-    }
-  };
+  // No custom aborts; let Azure/Netlify control timeouts to avoid premature 500s.
 
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
@@ -97,10 +75,9 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     }
 
     const includedImage = messageContent.some((p) => p?.type === 'image_url');
-    const maxTokens = Math.min(1500, Math.max(600, Number(getEnv('DECODER_MAX_TOKENS') || 900)));
-    const timeoutMs = Math.max(5000, Math.min(15000, Number(getEnv('DECODER_TIMEOUT_MS') || 9000)));
+    const maxTokens = Math.min(2000, Math.max(800, Number(getEnv('DECODER_MAX_TOKENS') || 1200)));
     dbg('request summary (primary)', { includedImage, maxTokens, response_format: 'text', messageParts: messageContent.map(p => p?.type).join(',') });
-    let res = await safeFetch(url, {
+    let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
@@ -111,25 +88,25 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
           { role: 'user', content: messageContent }
         ]
       })
-    }, timeoutMs);
+    });
     dbg('response (primary) status', res.status);
 
     if (!res.ok && includedImage) {
       const details = await res.text().catch(() => '');
       try { console.warn('[fn decode] azure image request failed; retrying text-only', res.status, details?.slice(0, 300)); } catch {}
       // Retry without image attachment
-      res = await safeFetch(url, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: Math.min(maxTokens, 800),
+          max_completion_tokens: Math.min(maxTokens, 1200),
           response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: [{ type: 'text', text: userText }] }
           ]
         })
-      }, Math.max(5000, Math.floor(timeoutMs * 0.8)));
+      });
       dbg('response (retry text-only) status', res.status);
     }
 
@@ -152,18 +129,18 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     if (!content?.trim()) {
       dbg('empty content on primary OK; retry with text format');
       try { console.warn('[fn decode] empty content with OK response; retrying with text format'); } catch {}
-      const retryRes = await safeFetch(url, {
+      const retryRes = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: Math.min(700, Number(getEnv('DECODER_MAX_TOKENS') || 900)),
+          max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
           response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: [{ type: 'text', text: `${userText}\n\nReturn ONLY the JSON object with keys mcqs and solution.` }] }
           ]
         })
-      }, Math.max(4500, Math.floor(timeoutMs * 0.7)));
+      });
       dbg('response (secondary text) status', retryRes.status);
       if (retryRes.ok) {
         const retryData = await retryRes.json();
@@ -181,18 +158,18 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
           try {
             const altUrl = buildUrl(rawEndpoint, altDeployment, apiVersion);
             dbg('attempting alternate deployment', { altDeployment, altUrl });
-            const altRes = await safeFetch(altUrl, {
+            const altRes = await fetch(altUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
               body: JSON.stringify({
-                max_completion_tokens: Math.min(700, Number(getEnv('DECODER_MAX_TOKENS') || 900)),
+                max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
                 response_format: { type: 'text' },
                 messages: [
                   { role: 'system', content: system },
                   { role: 'user', content: [{ type: 'text', text: userText }] }
                 ]
               })
-            }, Math.max(5000, Math.floor(timeoutMs * 0.8)));
+            });
             dbg('response (alt json/text) status', altRes.status);
             if (altRes.ok) {
               const altData = await altRes.json();
@@ -205,18 +182,18 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
             }
             if (!content?.trim()) {
               // Final fallback: alt deployment with text response
-              const altTextRes = await safeFetch(altUrl, {
+              const altTextRes = await fetch(altUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
                 body: JSON.stringify({
-                  max_completion_tokens: Math.min(600, Number(getEnv('DECODER_MAX_TOKENS') || 900)),
+                  max_completion_tokens: Math.min(1000, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
                   response_format: { type: 'text' },
                   messages: [
                     { role: 'system', content: system },
                     { role: 'user', content: [{ type: 'text', text: `${userText}\n\nReturn ONLY the JSON object with keys mcqs and solution.` }] }
                   ]
                 })
-              }, Math.max(4500, Math.floor(timeoutMs * 0.7)));
+              });
               dbg('response (alt text) status', altTextRes.status);
               if (altTextRes.ok) {
                 const altTextData = await altTextRes.json();
