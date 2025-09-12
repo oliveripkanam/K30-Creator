@@ -58,7 +58,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
 
   useEffect(() => {
     let cancelled = false;
-    // Kick off progress animation independently
+    // Show each step for ~3s for a smoother, predictable cadence
+    const stepDuration = 3000;
     let currentIndex = 0;
     const interval = setInterval(() => {
       if (cancelled) return;
@@ -66,10 +67,12 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         setCurrentStep(steps[currentIndex]);
         setProgress(((currentIndex + 1) / steps.length) * 100);
         currentIndex++;
+      } else {
+        clearInterval(interval);
       }
-    }, 800);
+    }, stepDuration);
 
-    // Start decoding immediately
+    // Start decoding immediately (in parallel) and finish when ready
     const decode = async () => {
       try {
         console.log('[decoder] POST /api/ai-decode');

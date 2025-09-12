@@ -104,8 +104,20 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
     if (question.fileData?.base64 && question.fileData?.mimeType) {
       const run = async () => {
         try {
-          setCurrentStep('Uploading to OCR engine...');
-          setProgress(15);
+          // Evenly step through the 6 UI steps at consistent timing
+          const stepDuration = 1200; // ms per visual step
+          let visualIndex = 0;
+          const visualTimer = setInterval(() => {
+            if (visualIndex < steps.length) {
+              setCurrentStep(steps[visualIndex]);
+              setProgress(((visualIndex + 1) / steps.length) * 100);
+              visualIndex++;
+            } else {
+              clearInterval(visualTimer);
+            }
+          }, stepDuration);
+
+          // Kick off OCR in parallel while the visual steps progress
           let res = await fetch('/api/extract', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -114,8 +126,6 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
               mimeType: question.fileData!.mimeType,
             }),
           });
-          setCurrentStep('Processing document...');
-          setProgress(55);
           if (res.status === 404) {
             // fallback to default netlify functions path
             res = await fetch('/.netlify/functions/extract', {
@@ -133,7 +143,6 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
             const cleaned = normalizeExtractedText(text);
             // Optional augmentation with vision to include diagram values
             try {
-              setCurrentStep('Augmenting with diagram (vision)...');
               console.log('[extractor] POST /api/augment');
               let aug = await fetch('/api/augment', {
                 method: 'POST',
@@ -166,10 +175,13 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
                 }
                 const finalText = normalizeExtractedText(augData?.text || cleaned);
                 setExtractedText(finalText);
-                setProgress(100);
-                setIsComplete(true);
-                const updatedQuestion = { ...question, extractedText: finalText };
-                setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+                // Ensure the visual steps complete before finishing
+                setTimeout(() => {
+                  setProgress(100);
+                  setIsComplete(true);
+                  const updatedQuestion = { ...question, extractedText: finalText };
+                  setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+                }, Math.max(0, stepDuration * steps.length - visualIndex * stepDuration));
                 return;
               }
               try {
@@ -180,10 +192,12 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
 
             // Fallback to cleaned OCR if augment fails
             setExtractedText(cleaned);
-            setProgress(100);
-            setIsComplete(true);
-            const updatedQuestion = { ...question, extractedText: cleaned };
-            setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+            setTimeout(() => {
+              setProgress(100);
+              setIsComplete(true);
+              const updatedQuestion = { ...question, extractedText: cleaned };
+              setTimeout(() => onTextExtracted(updatedQuestion), 1200);
+            }, Math.max(0, stepDuration * steps.length - visualIndex * stepDuration));
             return;
           }
         } catch {
