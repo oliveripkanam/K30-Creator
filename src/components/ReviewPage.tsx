@@ -83,7 +83,7 @@ export function ReviewPage({ onBackToSummary }: ReviewPageProps) {
                           : 'border border-gray-200 bg-white';
                       return (
                         <div key={idx} className={`${base} ${cls}`}>
-                          <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isAns ? 'bg-green-600 text-white' : isUser ? 'bg-red-600 text-white' : 'bg-gray-300 text-gray-800'}`}>
+                          <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isAns ? 'bg-white border-2 border-green-600 text-green-700' : isUser ? 'bg-white border-2 border-red-600 text-red-700' : 'bg-gray-100 border border-gray-300 text-gray-800'}`}>
                             {String.fromCharCode(65 + idx)}
                           </span>
                           <div className="flex-1">
