@@ -161,6 +161,9 @@ export default function App() {
 
   // On auth state change, load/create profile and set user
   useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      setIsHydrating(false);
+    }, 3500);
     // Hydrate existing session on initial load
     supabase.auth.getSession().then(async ({ data }) => {
       const authUser = data.session?.user;
@@ -241,7 +244,7 @@ export default function App() {
       void refreshDashboardMetrics(hydrated.id);
       setIsHydrating(false);
     });
-    return () => { sub.subscription.unsubscribe(); };
+    return () => { clearTimeout(safetyTimer); sub.subscription.unsubscribe(); };
   }, []);
 
   const handleQuestionSubmit = (question: Question) => {
