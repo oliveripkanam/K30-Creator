@@ -25,9 +25,10 @@ interface SolutionSummaryProps {
   solution: SolutionSummary;
   onComplete: () => void;
   onBack: () => void;
+  onSeeReview?: () => void;
 }
 
-export function SolutionSummaryComponent({ originalQuestion, solution, onComplete, onBack }: SolutionSummaryProps) {
+export function SolutionSummaryComponent({ originalQuestion, solution, onComplete, onBack, onSeeReview }: SolutionSummaryProps) {
   // Calculate tokens earned (similar to App.tsx logic)
   const calculateTokensEarned = () => {
     const baseTokens = originalQuestion.marks * 10;
@@ -128,12 +129,23 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
           </CardHeader>
           <CardContent>
             <div className="text-center py-6">
-              <div className="text-4xl font-bold text-green-800 mb-2">
-                {solution.finalAnswer}
-              </div>
-              <div className="text-lg text-green-700">
-                {solution.unit}
-              </div>
+              {(() => {
+                // Clean up cases where finalAnswer is a comma-joined list of options
+                const text = String(solution.finalAnswer || '').trim();
+                const looksLikeMCQDump = /^\d+\s*:\s*/.test(text);
+                const display = looksLikeMCQDump ? text.replace(/^(\d+\s*:\s*)/,'').trim() : text;
+                const unit = (solution.unit || '').trim();
+                return (
+                  <>
+                    <div className="text-4xl font-bold text-green-800 mb-2 break-words">
+                      {display || 'Answer available in working'}
+                    </div>
+                    {unit && (
+                      <div className="text-lg text-green-700">{unit}</div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -240,8 +252,8 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
 
         {/* Action Buttons */}
         <div className="flex justify-center space-x-4 pt-4">
-          <Button variant="outline" onClick={onBack}>
-            Review Steps
+          <Button variant="outline" onClick={() => onSeeReview && onSeeReview()}>
+            See How You Did
           </Button>
           <Button onClick={onComplete} className="px-8">
             Return to Dashboard

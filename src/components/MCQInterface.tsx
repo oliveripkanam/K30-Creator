@@ -64,6 +64,20 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
       correct: wasCorrect ? [...prev.correct, currentMCQ.step] : prev.correct,
       wrong: !wasCorrect ? [...prev.wrong, currentMCQ.step] : prev.wrong,
     }));
+    // Append to review log
+    try {
+      const log = (window as any).__k30_answerLog || [];
+      log.push({
+        step: currentMCQ.step,
+        question: currentMCQ.question,
+        options: currentMCQ.options,
+        correctAnswer: currentMCQ.correctAnswer,
+        userAnswer: selectedAnswer,
+        hint: currentMCQ.hint,
+        explanation: currentMCQ.explanation,
+      });
+      (window as any).__k30_answerLog = log;
+    } catch {}
   };
 
   const handleNext = () => {

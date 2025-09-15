@@ -8,6 +8,7 @@ import { TextVerification } from './components/TextVerification';
 import { QuestionDecoder } from './components/QuestionDecoder';
 import { MCQInterface } from './components/MCQInterface';
 import { SolutionSummaryComponent } from './components/SolutionSummary';
+import { ReviewPage } from './components/ReviewPage';
 import { QuestionHistory } from './components/QuestionHistory';
 
 interface MistakeType {
@@ -72,7 +73,7 @@ interface SolutionSummary {
   keyFormulas: string[];
 }
 
-type AppState = 'login' | 'dashboard' | 'input' | 'extractor' | 'verify' | 'decoder' | 'mcq' | 'solution' | 'history';
+type AppState = 'login' | 'dashboard' | 'input' | 'extractor' | 'verify' | 'decoder' | 'mcq' | 'solution' | 'history' | 'review';
 
 export default function App() {
   const [currentState, setCurrentState] = useState<AppState>('login');
@@ -269,6 +270,11 @@ export default function App() {
     setSolutionSummary(solution);
     setCurrentMCQIndex(0);
     setCurrentState('mcq');
+    // Reset review data store for this session
+    try {
+      (window as any).__k30_answerLog = [];
+      (window as any).__k30_lastScore = { correct: [], wrong: [] };
+    } catch {}
   };
 
   const handleMCQComplete = () => {
@@ -534,6 +540,13 @@ export default function App() {
             solution={solutionSummary!}
             onComplete={handleSolutionComplete}
             onBack={() => setCurrentState('mcq')}
+            onSeeReview={() => setCurrentState('review')}
+          />
+        );
+      case 'review':
+        return (
+          <ReviewPage
+            onBackToSummary={() => setCurrentState('solution')}
           />
         );
       case 'history':
