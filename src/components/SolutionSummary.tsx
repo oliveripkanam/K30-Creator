@@ -41,6 +41,31 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
   // Read score from previous screen if available
   let lastScore: { correct: number[]; wrong: number[] } = { correct: [], wrong: [] };
   try { lastScore = (window as any).__k30_lastScore || lastScore; } catch {}
+  // Review log for key points derivation
+  let answerLog: Array<{ step: number; explanation?: string }> = [];
+  try { answerLog = (window as any).__k30_answerLog || []; } catch {}
+
+  const deriveKeyPoints = (): string[] => {
+    const points: string[] = [];
+    const push = (s?: string) => {
+      const t = (s || '').toString().trim();
+      if (!t) return;
+      const norm = t.replace(/\s+/g, ' ');
+      if (!points.some(p => p.toLowerCase() === norm.toLowerCase())) points.push(norm);
+    };
+    // 1) From working steps
+    (solution.workingSteps || []).forEach(push);
+    // 2) From MCQ explanations (first sentence)
+    answerLog.forEach((it) => {
+      const exp = (it?.explanation || '').toString();
+      const first = exp.split(/(?<=[.!?])\s+/)[0];
+      push(first);
+    });
+    // 3) From key formulas as text points
+    (solution.keyFormulas || []).forEach(push);
+    return points.slice(0, 8);
+  };
+  const keyPoints = deriveKeyPoints();
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
       {/* Header */}
@@ -89,7 +114,8 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
           </CardContent>
         </Card>
 
-        {/* Original Question */}
+        {/* Original Question */
+        }
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -117,34 +143,38 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
           </CardContent>
         </Card>
 
-        {/* Final Answer */}
-        <Card className="border-2 border-green-300 bg-green-50">
+        {/* Answer Accuracy (moved up to replace Final Answer) */}
+        <Card>
           <CardHeader>
-            <CardTitle className="text-green-800 flex items-center">
-              <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Final Answer
-            </CardTitle>
+            <CardTitle>Answer Accuracy</CardTitle>
+            <CardDescription>Which steps you got right and wrong</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="py-4">
-              {(() => {
-                // Normalize model output into a neat sentence
-                const raw = String(solution.finalAnswer || '').trim();
-                // Remove numbered prefixes like "1:", "2:" possibly after commas
-                let cleaned = raw.replace(/(^|,)\s*\d+\s*:\s*/g, '$1').replace(/\s{2,}/g, ' ').replace(/\s*,\s*/g, ', ').trim();
-                if (!cleaned) cleaned = 'Answer available in working.';
-                if (!/[.!?]$/.test(cleaned)) cleaned += '.';
-                const unit = (solution.unit || '').trim();
-                const ignoreUnit = /^n\/?a$/i.test(unit) || unit.length === 0;
-                const sentence = ignoreUnit ? cleaned : `${cleaned} (${unit}).`;
-                return (
-                  <div className="bg-white rounded border border-green-300 p-4 text-2xl font-semibold text-green-800 leading-snug break-words">
-                    {sentence}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-green-50 border border-green-200 rounded p-3">
+                <h4 className="text-sm font-medium text-green-800 mb-2">Correct Steps</h4>
+                {lastScore.correct.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {lastScore.correct.map((s) => (
+                      <span key={`c-top-${s}`} className="px-2 py-1 text-xs rounded bg-green-100 text-green-800 border border-green-300">Step {s}</span>
+                    ))}
                   </div>
-                );
-              })()}
+                ) : (
+                  <p className="text-sm text-green-700">No steps marked correct.</p>
+                )}
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded p-3">
+                <h4 className="text-sm font-medium text-red-800 mb-2">Incorrect Steps</h4>
+                {lastScore.wrong.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {lastScore.wrong.map((s) => (
+                      <span key={`w-top-${s}`} className="px-2 py-1 text-xs rounded bg-red-100 text-red-800 border border-red-300">Step {s}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-red-700">Great job — none marked wrong.</p>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -169,20 +199,24 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
           </CardContent>
         </Card>
 
-        {/* Key Formulas Used */}
+        {/* Key Points */}
         <Card>
           <CardHeader>
-            <CardTitle>Key Formulas Used</CardTitle>
-            <CardDescription>Important equations for this type of problem</CardDescription>
+            <CardTitle>Key Points</CardTitle>
+            <CardDescription>Important takeaways extracted from your solution</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {solution.keyFormulas.map((formula, index) => (
-                <div key={index} className="bg-blue-50 p-3 rounded-lg border border-blue-200">
-                  <code className="text-blue-800 font-medium">{formula}</code>
-                </div>
-              ))}
-            </div>
+            {keyPoints.length ? (
+              <ul className="space-y-2">
+                {keyPoints.map((p, i) => (
+                  <li key={i} className="bg-blue-50 p-3 rounded-lg border border-blue-200 text-sm">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No key points extracted.</p>
+            )}
           </CardContent>
         </Card>
 
@@ -213,41 +247,7 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
           </CardContent>
         </Card>
 
-        {/* Answer Accuracy */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Answer Accuracy</CardTitle>
-            <CardDescription>Which steps you got right and wrong</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-green-50 border border-green-200 rounded p-3">
-                <h4 className="text-sm font-medium text-green-800 mb-2">Correct Steps</h4>
-                {lastScore.correct.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {lastScore.correct.map((s) => (
-                      <span key={`c-${s}`} className="px-2 py-1 text-xs rounded bg-green-100 text-green-800 border border-green-300">Step {s}</span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-green-700">No steps marked correct.</p>
-                )}
-              </div>
-              <div className="bg-red-50 border border-red-200 rounded p-3">
-                <h4 className="text-sm font-medium text-red-800 mb-2">Incorrect Steps</h4>
-                {lastScore.wrong.length ? (
-                  <div className="flex flex-wrap gap-2">
-                    {lastScore.wrong.map((s) => (
-                      <span key={`w-${s}`} className="px-2 py-1 text-xs rounded bg-red-100 text-red-800 border border-red-300">Step {s}</span>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-sm text-red-700">Great job — none marked wrong.</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        
 
         {/* Action Buttons */}
         <div className="flex justify-center space-x-4 pt-4">
