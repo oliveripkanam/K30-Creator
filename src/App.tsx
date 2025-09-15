@@ -146,7 +146,8 @@ export default function App() {
     loadMockCompletedQuestions();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try { await supabase.auth.signOut(); } catch {}
     setUser(null);
     setCurrentState('login');
   };
