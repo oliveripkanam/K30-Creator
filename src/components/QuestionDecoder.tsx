@@ -12,6 +12,9 @@ interface Question {
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
   fileData?: { base64: string; mimeType: string; name: string };
+  subject?: string;
+  syllabus?: string;
+  level?: string;
 }
 
 interface MCQ {
@@ -81,7 +84,10 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           marks: Math.min(6, Math.max(1, question.marks)),
           ...(question.fileData?.base64 && question.fileData?.mimeType
             ? { imageBase64: question.fileData.base64, imageMimeType: question.fileData.mimeType }
-            : {})
+            : {}),
+          subject: question.subject,
+          syllabus: question.syllabus,
+          level: question.level,
         };
         let res = await fetch('/api/ai-decode', {
           method: 'POST',

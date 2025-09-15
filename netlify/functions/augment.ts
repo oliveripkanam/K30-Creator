@@ -4,6 +4,9 @@ type AugmentRequest = {
   text: string;
   imageBase64?: string;
   imageMimeType?: string;
+  subject?: string;
+  syllabus?: string;
+  level?: string;
 };
 
 const respond = (status: number, body: unknown) =>
@@ -21,6 +24,9 @@ export default async (req: Request) => {
   if (!text) return respond(400, { error: "Missing 'text'" });
   const imageBase64 = (payload.imageBase64 || '').trim();
   const imageMimeType = (payload.imageMimeType || '').trim();
+  const subject = (payload.subject || '').toString().trim();
+  const syllabus = (payload.syllabus || '').toString().trim();
+  const level = (payload.level || '').toString().trim();
 
   try { console.log('[fn augment] input', { textLen: text.length, hasImage: !!imageBase64, mime: imageMimeType }); } catch {}
 
@@ -46,9 +52,13 @@ export default async (req: Request) => {
 
   const url = buildUrl(endpoint, deployment, apiVersion);
 
-  const system = `You rewrite OCR output of A-Level mechanics problems into a clean, single-block statement suitable for solving.
-- Use diagram/image (if provided) to recover numeric labels (masses, angles, tan values) and relationships.
-- Normalize fractions and units: join stacked lines (5/12, 12mg/5), keep symbols (α, μ) where present.
+  const scope = subject || syllabus || level 
+    ? `${subject || 'subject'}${syllabus ? ` (${syllabus})` : ''}${level ? ` — ${level}` : ''}`
+    : 'A-Level mechanics';
+
+  const system = `You rewrite OCR output of ${scope} problems into a clean, single-block statement suitable for solving.
+- Use diagram/image (if provided) to recover numeric labels and relationships.
+- Normalize fractions and units: join stacked lines (5/12, 12mg/5), keep symbols where present.
 - Remove headings like "Figure 1", stray labels (A, B) unless referenced, and page numbers.
 - Output ONLY the final cleaned problem text. No explanations.`;
 

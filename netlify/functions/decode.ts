@@ -2,7 +2,7 @@
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[] };
-type DecodeRequest = { text: string; marks?: number; imageBase64?: string; imageMimeType?: string };
+type DecodeRequest = { text: string; marks?: number; imageBase64?: string; imageMimeType?: string; subject?: string; syllabus?: string; level?: string };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -19,6 +19,9 @@ export default async (req: Request) => {
   const marks = Math.max(1, Math.min(6, Number(payload.marks ?? 3)));
   const imageBase64 = (payload.imageBase64 || '').trim();
   const imageMimeType = (payload.imageMimeType || '').trim();
+  const subject = (payload.subject || '').toString().trim();
+  const syllabus = (payload.syllabus || '').toString().trim();
+  const level = (payload.level || '').toString().trim();
   if (!text) return respond(400, { error: "Missing 'text'" });
   dbg('input summary', { textLen: text.length, marks, hasImage: !!imageBase64, imageMimeType });
 
@@ -37,14 +40,21 @@ export default async (req: Request) => {
     return respond(500, { error: 'Missing Azure OpenAI endpoint or api key' });
   }
 
-  const system = `You are a precise A-Level mechanics tutor.
+  const scope = subject || syllabus || level 
+    ? `${subject || 'subject'}${syllabus ? ` (${syllabus})` : ''}${level ? ` — ${level}` : ''}`
+    : 'A-Level mechanics';
+
+  const system = `You are a precise ${scope} tutor.
 You MUST base everything ONLY on the given problem. Do not invent unrelated scenarios.
 Return STRICT JSON with keys: mcqs (array) and solution (object).
 mcqs[i] fields: id, question, options (exactly 4), correctAnswer (0-based index), hint, explanation, step (1..N), calculationStep { formula, substitution, result } optional.
 solution fields: finalAnswer, unit, workingSteps[], keyFormulas[].
 Questions MUST directly progress toward the final answer for THIS problem.`;
 
-  const userText = `Problem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nIf an image is attached, use it only to disambiguate geometry/labels. Output JSON ONLY (no prose).`;
+  const contextLine = (subject || syllabus || level)
+    ? `Subject: ${subject || 'N/A'}; Syllabus: ${syllabus || 'N/A'}; Level: ${level || 'N/A'}.`
+    : `Domain: A-Level mechanics.`;
+  const userText = `${contextLine}\n\nProblem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nIf an image is attached, use it only to disambiguate geometry/labels. Output JSON ONLY (no prose).`;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');

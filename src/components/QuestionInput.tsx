@@ -15,6 +15,9 @@ interface Question {
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
   fileData?: { base64: string; mimeType: string; name: string };
+  subject?: string;           // e.g., Mathematics, Physics, Chemistry, Biology, History
+  syllabus?: string;          // e.g., Cambridge, Edexcel, IB, Generic
+  level?: string;             // e.g., A-Level, GCSE, IB HL/SL, University
 }
 
 interface QuestionInputProps {
@@ -30,6 +33,9 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
   const [activeTab, setActiveTab] = useState('text');
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const [subject, setSubject] = useState<string>('Mathematics');
+  const [syllabus, setSyllabus] = useState<string>('Generic');
+  const [level, setLevel] = useState<string>('A-Level');
 
   const prevent = (e: React.DragEvent) => {
     e.preventDefault();
@@ -130,6 +136,9 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       type,
       timestamp: new Date(),
       fileData,
+      subject,
+      syllabus,
+      level,
     };
 
     onSubmit(question);
@@ -168,12 +177,45 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       <div className="max-w-6xl mx-auto p-3 sm:p-4 lg:p-6">
         <Card className="w-full">
           <CardHeader>
-            <CardTitle>Add Your Mechanics Question</CardTitle>
+            <CardTitle>Add Your Question</CardTitle>
             <CardDescription className="text-sm">
-              Choose how you'd like to input your A Level mechanics question. For photos and files, you'll be able to review the extracted text before proceeding.
+              Choose how you'd like to input your question. For photos and files, you'll be able to review the extracted text before proceeding.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
+            {/* Subject/Syllabus/Level */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <Label htmlFor="subject">Subject</Label>
+                <Input
+                  id="subject"
+                  placeholder="e.g., Mathematics, Physics, Chemistry"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="syllabus">Syllabus / Board</Label>
+                <Input
+                  id="syllabus"
+                  placeholder="e.g., Cambridge, Edexcel, IB, Generic"
+                  value={syllabus}
+                  onChange={(e) => setSyllabus(e.target.value)}
+                  className="mt-2"
+                />
+              </div>
+              <div>
+                <Label htmlFor="level">Level</Label>
+                <Input
+                  id="level"
+                  placeholder="e.g., A-Level, GCSE, IB HL, University"
+                  value={level}
+                  onChange={(e) => setLevel(e.target.value)}
+                  className="mt-2"
+                />
+              </div>
+            </div>
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-3 h-auto">
                 <TabsTrigger value="text" className="flex flex-col sm:flex-row items-center space-y-1 sm:space-y-0 sm:space-x-2 py-3 sm:py-2">
@@ -202,9 +244,9 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
                   <Label htmlFor="question-text">Question Text</Label>
                   <Textarea
                     id="question-text"
-                    placeholder="Enter your A Level mechanics question here... 
+                    placeholder="Enter your question here... 
 
-Example: A ball is thrown horizontally from the top of a building 20m high with an initial velocity of 15 m/s. Calculate the time taken for the ball to reach the ground and the horizontal distance traveled."
+Example (Mechanics): A ball is thrown horizontally from the top of a building 20m high with an initial velocity of 15 m/s. Calculate the time taken for the ball to reach the ground and the horizontal distance traveled."
                     value={textContent}
                     onChange={(e) => setTextContent(e.target.value)}
                     className="min-h-32 mt-2"

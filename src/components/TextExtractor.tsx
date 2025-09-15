@@ -13,6 +13,9 @@ interface Question {
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
   fileData?: { base64: string; mimeType: string; name: string };
+  subject?: string;
+  syllabus?: string;
+  level?: string;
 }
 
 interface TextExtractorProps {
@@ -151,6 +154,9 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
                   text: cleaned,
                   imageBase64: question.fileData?.base64,
                   imageMimeType: question.fileData?.mimeType,
+                  subject: question.subject,
+                  syllabus: question.syllabus,
+                  level: question.level,
                 })
               });
               if (aug.status === 404) {
@@ -162,6 +168,9 @@ export function TextExtractor({ question, onTextExtracted, onBack }: TextExtract
                     text: cleaned,
                     imageBase64: question.fileData?.base64,
                     imageMimeType: question.fileData?.mimeType,
+                    subject: question.subject,
+                    syllabus: question.syllabus,
+                    level: question.level,
                   })
                 });
                 console.log('[extractor] /.netlify/functions/augment status', aug.status);
