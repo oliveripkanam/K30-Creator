@@ -197,7 +197,7 @@ export default function App() {
         setUser(null);
         setCurrentState('login');
       }
-      setIsHydrating(false);
+      // Defer clearing hydration: rely on onAuthStateChange or safety timer
     });
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const authUser = session?.user;
