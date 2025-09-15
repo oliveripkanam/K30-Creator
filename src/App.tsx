@@ -84,6 +84,7 @@ export default function App() {
   const [solutionSummary, setSolutionSummary] = useState<SolutionSummary | null>(null);
   const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState<Date | null>(null);
+  const [isHydrating, setIsHydrating] = useState<boolean>(true);
 
   // Mock user authentication (fallback)
   const handleLogin = (provider: 'apple' | 'microsoft' | 'google') => {
@@ -189,13 +190,18 @@ export default function App() {
         setCurrentState('dashboard');
         // Fetch DB-backed totals & streak (non-blocking)
         void refreshDashboardMetrics(baseUser.id);
+      } else {
+        setUser(null);
+        setCurrentState('login');
       }
+      setIsHydrating(false);
     });
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const authUser = session?.user;
       if (!authUser) {
         setUser(null);
         setCurrentState('login');
+        setIsHydrating(false);
         return;
       }
       const displayName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User';
@@ -233,6 +239,7 @@ export default function App() {
       setCurrentState('dashboard');
       // Fetch DB-backed totals & streak (non-blocking)
       void refreshDashboardMetrics(hydrated.id);
+      setIsHydrating(false);
     });
     return () => { sub.subscription.unsubscribe(); };
   }, []);
@@ -560,6 +567,17 @@ export default function App() {
         return <LoginPage onLogin={handleLogin} onOAuth={handleOAuth} />;
     }
   };
+
+  if (isHydrating) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex items-center space-x-3 text-sm text-muted-foreground">
+          <div className="w-6 h-6 rounded-full border-2 border-gray-300 border-t-transparent animate-spin" />
+          <span>Restoring your session…</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
