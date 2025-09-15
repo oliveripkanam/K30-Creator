@@ -145,7 +145,7 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: Da
         <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-4">
             <Avatar className="w-12 h-12 sm:w-16 sm:h-16">
-              <AvatarImage src={user.avatar} alt={user.name} />
+              <AvatarImage src={user.avatar || '/img/microsoft-default.png'} alt={user.name} />
               <AvatarFallback>{user.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
             </Avatar>
             <div className="flex-1 text-center sm:text-left">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { LoginPage } from './components/LoginPage';
+import { supabase } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
 import { QuestionInput } from './components/QuestionInput';
 import { TextExtractor } from './components/TextExtractor';
@@ -83,7 +84,7 @@ export default function App() {
   const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState<Date | null>(null);
 
-  // Mock user authentication
+  // Mock user authentication (fallback)
   const handleLogin = (provider: 'apple' | 'microsoft' | 'google') => {
     const mockUser: User = {
       id: '1',
@@ -150,6 +151,85 @@ export default function App() {
     setCurrentState('login');
   };
 
+  // Supabase OAuth
+  const handleOAuth = async (provider: 'google' | 'azure' | 'apple') => {
+    await supabase.auth.signInWithOAuth({ provider });
+  };
+
+  // On auth state change, load/create profile and set user
+  useEffect(() => {
+    // Hydrate existing session on initial load
+    supabase.auth.getSession().then(async ({ data }) => {
+      const authUser = data.session?.user;
+      if (authUser) {
+        const displayName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User';
+        const avatarUrl = authUser.user_metadata?.avatar_url || undefined;
+        try {
+          await supabase
+            .from('profiles')
+            .upsert({ id: authUser.id, display_name: displayName, avatar_url: avatarUrl, provider: (authUser.app_metadata?.provider as string) || null })
+            .select()
+            .single();
+        } catch {}
+        setUser({
+          id: authUser.id,
+          name: displayName,
+          email: authUser.email || '',
+          avatar: avatarUrl,
+          questionsDecoded: 0,
+          currentStreak: 0,
+          totalMarks: 0,
+          tokens: 0,
+          provider: (authUser.app_metadata?.provider as 'apple' | 'microsoft' | 'google') || 'google',
+          commonMistakes: [],
+        });
+        setCurrentState('dashboard');
+      }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const authUser = session?.user;
+      if (!authUser) {
+        setUser(null);
+        setCurrentState('login');
+        return;
+      }
+      const displayName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User';
+      const avatarUrl = authUser.user_metadata?.avatar_url || undefined;
+      // Upsert basic profile; ignore errors for now (RLS must allow self)
+      try {
+        await supabase
+          .from('profiles')
+          .upsert({
+            id: authUser.id,
+            display_name: displayName,
+            avatar_url: avatarUrl,
+            provider: (authUser.app_metadata?.provider as string) || null,
+          })
+          .select()
+          .single();
+      } catch (e) {
+        console.warn('profiles upsert failed', e);
+      }
+
+      const hydrated: User = {
+        id: authUser.id,
+        name: displayName,
+        email: authUser.email || '',
+        avatar: avatarUrl || '/img/microsoft-default.png',
+        // Defaults until DB totals are wired in later steps
+        questionsDecoded: 0,
+        currentStreak: 0,
+        totalMarks: 0,
+        tokens: 0,
+        provider: (authUser.app_metadata?.provider as 'apple' | 'microsoft' | 'google') || 'google',
+        commonMistakes: [],
+      };
+      setUser(hydrated);
+      setCurrentState('dashboard');
+    });
+    return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
   const handleQuestionSubmit = (question: Question) => {
     setCurrentQuestion(question);
     setQuestionStartTime(new Date());
@@ -212,6 +292,46 @@ export default function App() {
         totalMarks: user.totalMarks + currentQuestion.marks,
         tokens: user.tokens + tokensEarned
       });
+
+      // Persist to Supabase (fire-and-forget)
+      void (async () => {
+        try {
+          const { data: inserted, error } = await supabase
+            .from('questions')
+            .insert({
+              user_id: user.id,
+              source_type: currentQuestion.type,
+              marks: currentQuestion.marks,
+              original_input: currentQuestion.content,
+              extracted_text: currentQuestion.extractedText ?? null,
+              decoded_at: new Date().toISOString(),
+              time_spent_minutes: timeSpent,
+              tokens_earned: tokensEarned,
+              solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
+            })
+            .select('id')
+            .single();
+          if (error) throw error;
+          const questionId = inserted?.id;
+          if (questionId) {
+            const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
+            await supabase.from('mcq_steps').insert(
+              mcqs.map((m, i) => ({
+                question_id: questionId,
+                step_index: i,
+                prompt: m.question,
+                choices: choicesWithLabels(m.options),
+                correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
+                user_answer: null,
+                is_correct: null,
+                answered_at: null,
+              }))
+            );
+          }
+        } catch (e) {
+          console.warn('persist completion failed', e);
+        }
+      })();
     }
     setCurrentState('dashboard');
   };
@@ -277,7 +397,7 @@ export default function App() {
   const renderCurrentState = () => {
     switch (currentState) {
       case 'login':
-        return <LoginPage onLogin={handleLogin} />;
+        return <LoginPage onLogin={handleLogin} onOAuth={handleOAuth} />;
       case 'dashboard':
         return (
           <Dashboard 
@@ -341,12 +461,12 @@ export default function App() {
       case 'history':
         return (
           <QuestionHistory
-            completedQuestions={completedQuestions}
+            userId={user!.id}
             onBack={() => setCurrentState('dashboard')}
           />
         );
       default:
-        return <LoginPage onLogin={handleLogin} />;
+        return <LoginPage onLogin={handleLogin} onOAuth={handleOAuth} />;
     }
   };
 

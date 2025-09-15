@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Separator } from './ui/separator';
+import { supabase } from '../lib/supabase';
 
 interface SolutionSummary {
   finalAnswer: string;
@@ -31,12 +32,45 @@ interface CompletedQuestion extends Question {
   solutionSummary: SolutionSummary;
 }
 
-interface QuestionHistoryProps {
-  completedQuestions: CompletedQuestion[];
-  onBack: () => void;
-}
+interface QuestionHistoryProps { userId: string; onBack: () => void; }
 
-export function QuestionHistory({ completedQuestions, onBack }: QuestionHistoryProps) {
+export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
+  const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const fetchHistory = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('user_id', userId)
+          .order('decoded_at', { ascending: false });
+        if (error) throw error;
+        const mapped: CompletedQuestion[] = (data || []).map((q: any) => ({
+          id: q.id,
+          content: q.original_input || '',
+          extractedText: q.extracted_text || undefined,
+          marks: q.marks,
+          type: q.source_type,
+          timestamp: new Date(q.decoded_at),
+          completedAt: new Date(q.decoded_at),
+          tokensEarned: q.tokens_earned || 0,
+          mcqsGenerated: 0,
+          timeSpent: q.time_spent_minutes || 0,
+          solutionSummary: q.solution_summary ? JSON.parse(q.solution_summary) : { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] }
+        }));
+        setCompletedQuestions(mapped);
+      } catch (e: any) {
+        setError(e.message || 'Failed to load history');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [userId]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'marks' | 'tokens'>('date');
   const [filterType, setFilterType] = useState<'all' | 'photo' | 'file' | 'text'>('all');
@@ -124,6 +158,16 @@ export function QuestionHistory({ completedQuestions, onBack }: QuestionHistoryP
       </div>
 
       <div className="max-w-6xl mx-auto p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6">
+        {loading && (
+          <Card>
+            <CardContent className="p-6">Loading history...</CardContent>
+          </Card>
+        )}
+        {error && (
+          <Card>
+            <CardContent className="p-6 text-red-600">{error}</CardContent>
+          </Card>
+        )}
         {/* Summary Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           <Card>

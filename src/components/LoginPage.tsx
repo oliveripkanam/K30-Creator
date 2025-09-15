@@ -5,9 +5,10 @@ import { Separator } from './ui/separator';
 
 interface LoginPageProps {
   onLogin: (provider: 'apple' | 'microsoft' | 'google') => void;
+  onOAuth?: (provider: 'google' | 'azure' | 'apple') => void;
 }
 
-export function LoginPage({ onLogin }: LoginPageProps) {
+export function LoginPage({ onLogin, onOAuth }: LoginPageProps) {
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-blue-50 to-indigo-100">
       <Card className="w-full max-w-md">
@@ -90,7 +91,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           <Button 
             className="w-full h-12" 
             variant="outline"
-            onClick={() => onLogin('google')}
+            onClick={() => (onOAuth ? onOAuth('google') : onLogin('google'))}
           >
             <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
@@ -104,7 +105,7 @@ export function LoginPage({ onLogin }: LoginPageProps) {
           <Button 
             className="w-full h-12" 
             variant="outline"
-            onClick={() => onLogin('microsoft')}
+            onClick={() => (onOAuth ? onOAuth('azure') : onLogin('microsoft'))}
           >
             <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path fill="#F25022" d="M11.4 11.4H2V2h9.4v9.4z"/>
