@@ -84,7 +84,7 @@ export default function App() {
   const [solutionSummary, setSolutionSummary] = useState<SolutionSummary | null>(null);
   const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState<Date | null>(null);
-  const [isHydrating, setIsHydrating] = useState<boolean>(true);
+  // Removed session hydration on refresh by request
 
   // Mock user authentication (fallback)
   const handleLogin = (provider: 'apple' | 'microsoft' | 'google') => {
@@ -159,52 +159,13 @@ export default function App() {
     await supabase.auth.signInWithOAuth({ provider });
   };
 
-  // On auth state change, load/create profile and set user
+  // On auth state change, load/create profile and set user (no refresh hydration)
   useEffect(() => {
-    const safetyTimer = setTimeout(() => {
-      setIsHydrating(false);
-    }, 3500);
-    // Hydrate existing session on initial load
-    supabase.auth.getSession().then(async ({ data }) => {
-      const authUser = data.session?.user;
-      if (authUser) {
-        const displayName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User';
-        const avatarUrl = authUser.user_metadata?.avatar_url || undefined;
-        try {
-          await supabase
-            .from('profiles')
-            .upsert({ id: authUser.id, display_name: displayName, avatar_url: avatarUrl, provider: (authUser.app_metadata?.provider as string) || null })
-            .select()
-            .single();
-        } catch {}
-        const baseUser: User = {
-          id: authUser.id,
-          name: displayName,
-          email: authUser.email || '',
-          avatar: avatarUrl,
-          questionsDecoded: 0,
-          currentStreak: 0,
-          totalMarks: 0,
-          tokens: 0,
-          provider: (authUser.app_metadata?.provider as 'apple' | 'microsoft' | 'google') || 'google',
-          commonMistakes: [],
-        };
-        setUser(baseUser);
-        setCurrentState('dashboard');
-        // Fetch DB-backed totals & streak (non-blocking)
-        void refreshDashboardMetrics(baseUser.id);
-      } else {
-        setUser(null);
-        setCurrentState('login');
-      }
-      // Defer clearing hydration: rely on onAuthStateChange or safety timer
-    });
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const authUser = session?.user;
       if (!authUser) {
         setUser(null);
         setCurrentState('login');
-        setIsHydrating(false);
         return;
       }
       const displayName = authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'User';
@@ -242,9 +203,8 @@ export default function App() {
       setCurrentState('dashboard');
       // Fetch DB-backed totals & streak (non-blocking)
       void refreshDashboardMetrics(hydrated.id);
-      setIsHydrating(false);
     });
-    return () => { clearTimeout(safetyTimer); sub.subscription.unsubscribe(); };
+    return () => { sub.subscription.unsubscribe(); };
   }, []);
 
   const handleQuestionSubmit = (question: Question) => {
@@ -570,17 +530,6 @@ export default function App() {
         return <LoginPage onLogin={handleLogin} onOAuth={handleOAuth} />;
     }
   };
-
-  if (isHydrating) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="flex items-center space-x-3 text-sm text-muted-foreground">
-          <div className="w-6 h-6 rounded-full border-2 border-gray-300 border-t-transparent animate-spin" />
-          <span>Restoring your session…</span>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">
