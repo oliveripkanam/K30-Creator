@@ -172,7 +172,7 @@ export default function App() {
             .select()
             .single();
         } catch {}
-        setUser({
+        const baseUser: User = {
           id: authUser.id,
           name: displayName,
           email: authUser.email || '',
@@ -183,8 +183,11 @@ export default function App() {
           tokens: 0,
           provider: (authUser.app_metadata?.provider as 'apple' | 'microsoft' | 'google') || 'google',
           commonMistakes: [],
-        });
+        };
+        setUser(baseUser);
         setCurrentState('dashboard');
+        // Fetch DB-backed totals & streak (non-blocking)
+        void refreshDashboardMetrics(baseUser.id);
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -227,6 +230,8 @@ export default function App() {
       };
       setUser(hydrated);
       setCurrentState('dashboard');
+      // Fetch DB-backed totals & streak (non-blocking)
+      void refreshDashboardMetrics(hydrated.id);
     });
     return () => { sub.subscription.unsubscribe(); };
   }, []);
@@ -329,12 +334,84 @@ export default function App() {
               }))
             );
           }
+          // Refresh DB-backed totals & streak after save
+          void refreshDashboardMetrics(user.id);
         } catch (e) {
           console.warn('persist completion failed', e);
         }
       })();
     }
     setCurrentState('dashboard');
+  };
+
+  // Fetch totals (questions, marks, tokens) and true daily streak from DB
+  const refreshDashboardMetrics = async (userId: string) => {
+    try {
+      // Try view for totals first
+      let questionsDecoded = 0;
+      let totalMarks = 0;
+      let tokens = 0;
+      try {
+        const { data: totalsRow, error: totalsErr } = await supabase
+          .from('v_user_totals')
+          .select('*')
+          .eq('user_id', userId)
+          .single();
+        if (!totalsErr && totalsRow) {
+          questionsDecoded = Number(totalsRow.questions_decoded || 0);
+          totalMarks = Number(totalsRow.total_marks || 0);
+          tokens = Number(totalsRow.tokens || 0);
+        } else {
+          // Fallback compute from questions
+          const { data: qAgg } = await supabase
+            .from('questions')
+            .select('marks, tokens_earned, id')
+            .eq('user_id', userId);
+          if (qAgg) {
+            questionsDecoded = qAgg.length;
+            totalMarks = qAgg.reduce((s: number, q: any) => s + Number(q.marks || 0), 0);
+            tokens = qAgg.reduce((s: number, q: any) => s + Number(q.tokens_earned || 0), 0);
+          }
+        }
+      } catch {}
+
+      // Streak via RPC if available; else compute client-side
+      let currentStreak = 0;
+      try {
+        const { data: streakVal, error: streakErr } = await supabase.rpc('fn_user_streak', { p_user_id: userId });
+        if (!streakErr && typeof streakVal === 'number') {
+          currentStreak = streakVal;
+        } else {
+          // Fallback: compute consecutive days ending today
+          const { data: dates } = await supabase
+            .from('questions')
+            .select('decoded_at')
+            .eq('user_id', userId)
+            .order('decoded_at', { ascending: false })
+            .limit(365);
+          const set = new Set<string>((dates || []).map((r: any) => new Date(r.decoded_at).toISOString().slice(0, 10)));
+          let streak = 0;
+          for (let i = 0; i < 365; i++) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const key = d.toISOString().slice(0, 10);
+            if (set.has(key)) streak += 1; else break;
+          }
+          currentStreak = streak;
+        }
+      } catch {}
+
+      setUser((prev) => prev ? {
+        ...prev,
+        questionsDecoded,
+        totalMarks,
+        tokens,
+        currentStreak,
+      } : prev);
+    } catch (e) {
+      // Non-fatal: keep defaults if queries fail
+      console.warn('refreshDashboardMetrics failed', e);
+    }
   };
 
   const calculateTokens = (marks: number, mcqCount: number, timeSpent: number): number => {
