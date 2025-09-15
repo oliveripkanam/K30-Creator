@@ -46,11 +46,6 @@ Optional:
 - `DECODER_MAX_TOKENS` (default 1200; 800–2000 typical)
 - `DEBUG_BYPASS_AZURE=1` (route checks only)
 
-Frontend (Vite):
-- `VITE_SUPABASE_URL`
-- `VITE_SUPABASE_ANON_KEY`
-- `VITE_GOOGLE_CLIENT_ID` (Google Identity Services OAuth Client ID)
-
 ### Getting started
 1) Install dependencies
 ```bash
