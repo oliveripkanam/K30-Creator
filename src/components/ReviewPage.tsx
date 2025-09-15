@@ -52,13 +52,19 @@ export function ReviewPage({ onBackToSummary }: ReviewPageProps) {
           items.map((item) => {
             const isCorrect = item.userAnswer === item.correctAnswer;
             return (
-              <Card key={item.step} className={isCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+              <Card key={item.step} className={isCorrect ? 'border-green-300 bg-white' : 'border-red-400 bg-white'}>
                 <CardHeader>
                   <CardTitle className={isCorrect ? 'text-green-700' : 'text-red-700'}>
                     Step {item.step}
                   </CardTitle>
-                  <CardDescription>
-                    {isCorrect ? 'Correct' : 'Incorrect'} — Correct answer is {String.fromCharCode(65 + item.correctAnswer)}
+                  <CardDescription className="flex items-center gap-2 flex-wrap">
+                    {isCorrect ? (
+                      <span className="px-2 py-1 rounded bg-green-100 text-green-800 border border-green-300 text-xs">Correct</span>
+                    ) : (
+                      <span className="px-2 py-1 rounded bg-red-100 text-red-800 border border-red-400 text-xs">Incorrect</span>
+                    )}
+                    <span className="px-2 py-1 rounded bg-gray-100 text-gray-800 border border-gray-300 text-xs">Your answer: {item.userAnswer !== null && item.userAnswer !== undefined ? String.fromCharCode(65 + (item.userAnswer as number)) : '-'}</span>
+                    <span className="px-2 py-1 rounded bg-blue-100 text-blue-800 border border-blue-300 text-xs">Correct: {String.fromCharCode(65 + item.correctAnswer)}</span>
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -66,12 +72,30 @@ export function ReviewPage({ onBackToSummary }: ReviewPageProps) {
                     <p className="text-sm font-medium">{item.question}</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {item.options.map((opt, idx) => (
-                      <div key={idx} className={`p-2 rounded border text-sm ${idx === item.correctAnswer ? 'border-green-400 bg-green-50' : idx === item.userAnswer ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'}`}>
-                        <span className="font-medium mr-2">{String.fromCharCode(65 + idx)}.</span>
-                        {opt}
-                      </div>
-                    ))}
+                    {item.options.map((opt, idx) => {
+                      const isUser = idx === item.userAnswer;
+                      const isAns = idx === item.correctAnswer;
+                      const base = 'p-2 rounded border text-sm flex items-start gap-2';
+                      const cls = isAns
+                        ? 'border-green-600 bg-green-50'
+                        : isUser
+                          ? 'border-red-600 bg-red-50'
+                          : 'border-gray-200 bg-white';
+                      return (
+                        <div key={idx} className={`${base} ${cls}`}>
+                          <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isAns ? 'bg-green-600 text-white' : isUser ? 'bg-red-600 text-white' : 'bg-gray-300 text-gray-800'}`}>
+                            {String.fromCharCode(65 + idx)}
+                          </span>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <span>{opt}</span>
+                              {isAns && <span className="px-1.5 py-0.5 text-[10px] rounded bg-green-100 text-green-800 border border-green-300">Answer</span>}
+                              {isUser && !isAns && <span className="px-1.5 py-0.5 text-[10px] rounded bg-red-100 text-red-800 border border-red-300">Your choice</span>}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                   {item.explanation && (
                     <div className="bg-white/70 p-3 rounded border">
@@ -83,6 +107,11 @@ export function ReviewPage({ onBackToSummary }: ReviewPageProps) {
             );
           })
         )}
+        <div className="flex justify-center py-6">
+          <Button variant="outline" className="px-8" onClick={onBackToSummary}>
+            Back to Summary
+          </Button>
+        </div>
       </div>
     </div>
   );
