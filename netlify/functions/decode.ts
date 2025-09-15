@@ -223,6 +223,36 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         try { parsed = JSON.parse(m[0]); } catch {}
       }
     }
+    // Helper: normalize an options structure into a clean string[4]
+    const normalizeOptions = (raw: any): string[] | null => {
+      try {
+        if (Array.isArray(raw)) {
+          // Examples: ["opt A", "opt B", ...] or [{ text, label }, ...]
+          const arr = raw.map((v: any) => {
+            if (typeof v === 'string') return String(v).trim();
+            if (v && typeof v === 'object') {
+              const t = v.text ?? v.value ?? v.option ?? v.label ?? '';
+              return String(t).trim();
+            }
+            return '';
+          });
+          if (arr.length === 4 && arr.every((s: string) => typeof s === 'string' && s.trim().length > 1)) {
+            // Strip leading "A) ", "B. ", etc.
+            return arr.map((s: string) => s.replace(/^\s*[A-Da-d][).:\-]\s*/, '').trim());
+          }
+        }
+        if (raw && typeof raw === 'object') {
+          // Example: { A: '...', B: '...', C: '...', D: '...' }
+          const keys = ['A','B','C','D'];
+          const arr = keys.map(k => String(raw[k] ?? '').trim());
+          if (arr.every((s: string) => s.length > 1)) return arr;
+        }
+      } catch {}
+      return null;
+    };
+
+    const letterOnly = (arr: any[]) => Array.isArray(arr) && arr.length === 4 && arr.every(v => typeof v === 'string' && /^[A-Da-d]$/.test(v.trim().replace(/[).]/g,'')));
+
     if (!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) { 
       try { console.warn('[fn decode] invalid model output; attempting salvage', { preview: content.slice(0, 200) }); } catch {};
       // Lenient salvage: extract questions heuristically and build minimal MCQs
@@ -232,11 +262,70 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         for (let i = 0; i < Math.min(qMatches.length, marks); i++) {
           const qText = (qMatches[i]?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 280);
           if (!qText) continue;
+          // Look for options and correct answer in the text region following this question
+          const start = qMatches[i].index ?? 0;
+          const end = (qMatches[i+1]?.index ?? content.length);
+          const region = content.slice(start, end);
+
+          // Try to capture options as a JSON array first
+          let options: string[] | null = null;
+          const optJson = region.match(/\"options\"\s*:\s*\[(.*?)\]/s);
+          if (optJson && optJson[1]) {
+            try {
+              const jsonStr = `[${optJson[1]}]`;
+              const parsedArr = JSON.parse(jsonStr);
+              options = normalizeOptions(parsedArr);
+            } catch {}
+          }
+          // Try alternative key 'choices'
+          if (!options) {
+            const choicesJson = region.match(/\"choices\"\s*:\s*\[(.*?)\]/s);
+            if (choicesJson && choicesJson[1]) {
+              try {
+                const jsonStr = `[${choicesJson[1]}]`;
+                const parsedArr = JSON.parse(jsonStr);
+                // choices may be like [{label:'A', text:'...'}]
+                options = normalizeOptions(parsedArr);
+              } catch {}
+            }
+          }
+          // Fallback: parse lettered lines like "A) text"
+          if (!options) {
+            const lettered: string[] = [];
+            const rgx = /\n?\s*([A-Da-d])[).:\-]\s*([^\n\r]+)[\n\r]?/g;
+            let m;
+            while ((m = rgx.exec(region)) && lettered.length < 4) {
+              lettered.push(String(m[2] || '').trim());
+            }
+            if (lettered.length === 4) options = lettered;
+          }
+
+          // Determine correct answer index
+          let correctIdx = 0;
+          const mNum = region.match(/\"correctAnswer\"\s*:\s*(\d+)/);
+          if (mNum) correctIdx = Math.max(0, Math.min(3, Number(mNum[1])));
+          const mLbl = region.match(/\"correct(Label|Option)?\"\s*:\s*\"([A-Da-d])\"/);
+          if (mLbl) {
+            const L = mLbl[2].toUpperCase().charCodeAt(0) - 65;
+            if (!Number.isNaN(L)) correctIdx = Math.max(0, Math.min(3, L));
+          }
+
+          // Safety defaults
+          if (!options || letterOnly(options)) {
+            options = [
+              'State the relevant formula/law',
+              'Substitute given values',
+              'Compute the intermediate result',
+              'None of the above'
+            ];
+            correctIdx = 0;
+          }
+
           salvagedMcqs.push({
             id: `sv-${Date.now()}-${i}`,
             question: qText,
-            options: ['A', 'B', 'C', 'D'],
-            correctAnswer: 0,
+            options,
+            correctAnswer: correctIdx,
             hint: 'Think about the next logical step toward the final answer.',
             explanation: 'Proceed step-by-step using the relevant formula before substituting numbers.',
             step: i + 1,
@@ -290,6 +379,40 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         }
       } catch {}
     }
+
+    // Normalize MCQs: fix option shapes, clamp correctAnswer, and replace invalid letter-only options
+    const normalized: MCQ[] = [] as any;
+    for (let i = 0; i < (ensured.mcqs || []).length; i++) {
+      const m: any = ensured.mcqs[i] || {};
+      let opts = normalizeOptions(m.options) ?? normalizeOptions(m.choices) ?? null;
+      if (!opts || letterOnly(opts)) {
+        opts = [
+          'State the relevant formula/law',
+          'Substitute given values',
+          'Compute the intermediate result',
+          'None of the above'
+        ];
+      }
+      let ca: any = m.correctAnswer;
+      if (typeof ca !== 'number') {
+        const label = String(m.correct_label || m.correct || '').trim();
+        if (/^[A-Da-d]$/.test(label)) ca = label.toUpperCase().charCodeAt(0) - 65;
+      }
+      if (typeof ca === 'string' && /^\d+$/.test(ca)) ca = Number(ca);
+      if (typeof ca !== 'number' || Number.isNaN(ca)) ca = 0;
+      ca = Math.max(0, Math.min(3, ca));
+      normalized.push({
+        id: String(m.id || `mcq-${Date.now()}-${i}`),
+        question: String(m.question || '').trim().slice(0, 500) || `Step ${i + 1}: Choose the next best action`,
+        options: opts,
+        correctAnswer: ca,
+        hint: String(m.hint || 'Consider the principle that advances toward the final result.').slice(0, 300),
+        explanation: String(m.explanation || 'Select the option that logically progresses the solution.').slice(0, 600),
+        step: Number(m.step) || (i + 1),
+        calculationStep: m.calculationStep
+      });
+    }
+    ensured.mcqs = normalized;
 
     // Ensure we return exactly 'marks' MCQs. If still short, synthesize simple filler items.
     ensured.mcqs = (ensured.mcqs || []);
