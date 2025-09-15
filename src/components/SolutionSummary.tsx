@@ -128,22 +128,21 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-center py-6">
+            <div className="py-4">
               {(() => {
-                // Clean up cases where finalAnswer is a comma-joined list of options
-                const text = String(solution.finalAnswer || '').trim();
-                const looksLikeMCQDump = /^\d+\s*:\s*/.test(text);
-                const display = looksLikeMCQDump ? text.replace(/^(\d+\s*:\s*)/,'').trim() : text;
+                // Normalize model output into a neat sentence
+                const raw = String(solution.finalAnswer || '').trim();
+                // Remove numbered prefixes like "1:", "2:" possibly after commas
+                let cleaned = raw.replace(/(^|,)\s*\d+\s*:\s*/g, '$1').replace(/\s{2,}/g, ' ').replace(/\s*,\s*/g, ', ').trim();
+                if (!cleaned) cleaned = 'Answer available in working.';
+                if (!/[.!?]$/.test(cleaned)) cleaned += '.';
                 const unit = (solution.unit || '').trim();
+                const ignoreUnit = /^n\/?a$/i.test(unit) || unit.length === 0;
+                const sentence = ignoreUnit ? cleaned : `${cleaned} (${unit}).`;
                 return (
-                  <>
-                    <div className="text-4xl font-bold text-green-800 mb-2 break-words">
-                      {display || 'Answer available in working'}
-                    </div>
-                    {unit && (
-                      <div className="text-lg text-green-700">{unit}</div>
-                    )}
-                  </>
+                  <div className="bg-white rounded border border-green-300 p-4 text-2xl font-semibold text-green-800 leading-snug break-words">
+                    {sentence}
+                  </div>
                 );
               })()}
             </div>

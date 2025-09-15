@@ -52,7 +52,7 @@ export function ReviewPage({ onBackToSummary }: ReviewPageProps) {
           items.map((item) => {
             const isCorrect = item.userAnswer === item.correctAnswer;
             return (
-              <Card key={item.step} className={isCorrect ? 'border-green-300 bg-white' : 'border-red-400 bg-white'}>
+              <Card key={item.step} className={isCorrect ? 'border-green-300 bg-green-50' : 'border-red-400 bg-red-50'}>
                 <CardHeader>
                   <CardTitle className={isCorrect ? 'text-green-700' : 'text-red-700'}>
                     Step {item.step}
@@ -77,10 +77,10 @@ export function ReviewPage({ onBackToSummary }: ReviewPageProps) {
                       const isAns = idx === item.correctAnswer;
                       const base = 'p-2 rounded border text-sm flex items-start gap-2';
                       const cls = isAns
-                        ? 'border-green-600 bg-green-50'
+                        ? 'border-2 border-green-600 bg-white'
                         : isUser
-                          ? 'border-red-600 bg-red-50'
-                          : 'border-gray-200 bg-white';
+                          ? 'border-2 border-red-600 bg-white'
+                          : 'border border-gray-200 bg-white';
                       return (
                         <div key={idx} className={`${base} ${cls}`}>
                           <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${isAns ? 'bg-green-600 text-white' : isUser ? 'bg-red-600 text-white' : 'bg-gray-300 text-gray-800'}`}>
