@@ -270,7 +270,8 @@ export default function App() {
       setUser({
         ...user,
         questionsDecoded: user.questionsDecoded + 1,
-        currentStreak: user.currentStreak + 1,
+        // Do not locally bump streak; server will compute real streak
+        currentStreak: user.currentStreak,
         totalMarks: user.totalMarks + currentQuestion.marks,
         tokens: user.tokens + tokensEarned
       });
@@ -278,6 +279,8 @@ export default function App() {
       // Persist to Supabase (fire-and-forget)
       void (async () => {
         try {
+          const { data: sess } = await supabase.auth.getSession();
+          console.log('[persist] start', { hasSession: !!sess?.session, userId: user.id });
           const { data: inserted, error } = await supabase
             .from('questions')
             .insert({
@@ -293,11 +296,14 @@ export default function App() {
             })
             .select('id')
             .single();
-          if (error) throw error;
+          if (error) {
+            console.error('[persist] insert questions failed', { error });
+            throw error;
+          }
           const questionId = inserted?.id;
           if (questionId) {
             const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
-            await supabase.from('mcq_steps').insert(
+            const { error: stepsErr } = await supabase.from('mcq_steps').insert(
               mcqs.map((m, i) => ({
                 question_id: questionId,
                 step_index: i,
@@ -309,6 +315,11 @@ export default function App() {
                 answered_at: null,
               }))
             );
+            if (stepsErr) {
+              console.error('[persist] insert mcq_steps failed', { error: stepsErr });
+            } else {
+              console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
+            }
           }
           // Refresh DB-backed totals & streak after save
           void refreshDashboardMetrics(user.id);
