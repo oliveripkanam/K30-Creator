@@ -89,7 +89,9 @@ export function LoginPage({ onLogin, onOAuth }: LoginPageProps) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <GoogleSignIn className="w-full flex justify-center" />
+          <div className="w-full">
+            <GoogleSignIn className="w-full flex justify-center" />
+          </div>
 
           <Button 
             className="w-full h-12" 

@@ -48,13 +48,16 @@ export function GoogleSignIn({ onSuccess, onError, className }: GoogleSignInProp
         });
 
         if (divRef.current) {
-          window.google.accounts.id.renderButton(divRef.current, {
-            theme: 'outline',
+          const container = divRef.current;
+          const containerWidth = Math.min(380, Math.max(240, container.offsetWidth || 320));
+          window.google.accounts.id.renderButton(container, {
+            theme: 'filled_blue',
             size: 'large',
-            width: 320,
+            width: containerWidth,
             type: 'standard',
             shape: 'rectangular',
             text: 'continue_with',
+            logo_alignment: 'left',
           });
         }
       } catch (e) {
