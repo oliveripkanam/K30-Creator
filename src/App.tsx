@@ -94,6 +94,11 @@ export default function App() {
   const [isDashLoading, setIsDashLoading] = useState<boolean>(false);
   const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(false);
   // Removed session hydration on refresh by request
+  const isAuthHydratingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    isAuthHydratingRef.current = isAuthHydrating;
+  }, [isAuthHydrating]);
 
   // Mock user authentication (fallback)
   const handleLogin = (provider: 'apple' | 'microsoft' | 'google') => {
@@ -187,12 +192,13 @@ export default function App() {
   };
 
   // On auth state change, load/create profile and set user (with small post-OAuth hydration gate)
+  // Subscribe ONCE; use ref to read latest hydration state to avoid duplicate INITIAL_SESSION navigations
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       const authUser = session?.user;
       if (!authUser) {
         // Avoid bouncing to login during the brief OAuth hash-processing window
-        if (isAuthHydrating && (event === 'INITIAL_SESSION' || event === 'SIGNED_OUT')) return;
+        if (isAuthHydratingRef.current && (event === 'INITIAL_SESSION' || event === 'SIGNED_OUT')) return;
         setUser(null);
         setCurrentState('login');
         return;
@@ -240,7 +246,7 @@ export default function App() {
       void refreshDashboardMetrics(hydrated.id);
     });
     return () => { sub.subscription.unsubscribe(); };
-  }, [isAuthHydrating]);
+  }, []);
 
   // Minimal hydration on initial load or OAuth callback redirect
   useEffect(() => {
