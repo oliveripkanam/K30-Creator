@@ -44,14 +44,57 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
       setLoading(true);
       setError(null);
       try {
-        const { data, error } = await supabase
+        // Try Supabase client first with a timeout, then REST fallback using access token
+        const clientSelect = supabase
           .from('questions')
           .select('*')
           .eq('user_id', userId)
           .order('decoded_at', { ascending: false });
-        if (error) throw error;
+        const clientTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('client select timeout after 6s')), 6000));
+        let rows: any[] | null = null;
+        try {
+          const { data, error } = (await Promise.race([clientSelect, clientTimeout])) as any;
+          if (error) throw error;
+          rows = data || [];
+          // eslint-disable-next-line no-console
+          console.log('[history] client select ok', rows.length);
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn('[history] client select failed, trying REST');
+          // REST fallback
+          try {
+            const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+            const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+            let accessToken = '';
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i) || '';
+              if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+                const v = localStorage.getItem(k) || '';
+                const parsed = JSON.parse(v || '{}');
+                accessToken = parsed?.access_token || '';
+                if (accessToken) break;
+              }
+            }
+            const url = `${envUrl}/rest/v1/questions?select=*&user_id=eq.${encodeURIComponent(userId)}&order=decoded_at.desc`;
+            const resp = await fetch(url, {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'apikey': envAnon,
+              } as any,
+            });
+            // eslint-disable-next-line no-console
+            console.log('[history] REST select status', resp.status);
+            if (!resp.ok) {
+              const txt = await resp.text();
+              throw new Error(`rest select failed ${resp.status}: ${txt}`);
+            }
+            rows = await resp.json();
+          } catch (restErr: any) {
+            throw restErr;
+          }
+        }
         if (aborted) return;
-        const mapped: CompletedQuestion[] = (data || []).map((q: any) => ({
+        const mapped: CompletedQuestion[] = (rows || []).map((q: any) => ({
           id: q.id,
           content: q.original_input || '',
           extractedText: q.extracted_text || undefined,
