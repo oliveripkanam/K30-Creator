@@ -110,11 +110,22 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   };
 
   const improveHints = (mcqs: MCQ[], q: Question): MCQ[] => {
+    const used = new Set<string>();
+    const normalize = (s: string) => s.trim().toLowerCase();
+    const altHintFor = (mcq: MCQ): string => {
+      const text = `${q.extractedText || q.content} ${mcq.question}`.toLowerCase();
+      if (/long\-term|chronic/.test(text)) return 'Pick one chronic risk (develops over months–years).';
+      if (/short\-term|acute/.test(text)) return 'Pick one immediate effect (hours–days).';
+      return 'Choose one clear, syllabus‑valid fact that directly answers the prompt.';
+    };
     return mcqs.map((m) => {
-      if (isWeakHint(m.hint)) {
-        return { ...m, hint: strengthenHint(m, q) };
+      let hint = isWeakHint(m.hint) ? strengthenHint(m, q) : String(m.hint || '').trim();
+      const key = normalize(hint);
+      if (used.has(key)) {
+        hint = altHintFor(m);
       }
-      return m;
+      used.add(normalize(hint));
+      return { ...m, hint };
     });
   };
 
