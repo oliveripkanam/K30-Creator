@@ -86,7 +86,7 @@ export default async (req: Request) => {
     const hasImage = baseContent.some((p) => p?.type === 'image_url');
 
     // STEP 1: Extract concise structured givens/relations JSON + a step plan of length 'marks'
-    const parseInstruction = `\n\nReturn ONLY JSON with keys: quantities (array of {name,symbol?,value?,unit?,known:boolean,type:'numeric'|'symbolic'}), relations (array of equation/constraint strings), targets (array of strings), constraints (array of short strings), context (string), plan (array of exactly ${marks} items where each item is {step:number, goal:'select relation'|'resolve components'|'balance forces'|'substitute & evaluate'|'compute next quantity'|'derive formula', mustProduce:'number'|'formula'|'choice', note?:string}). No prose.`;
+    const parseInstruction = `\n\nReturn ONLY JSON with keys: quantities (array of {name,symbol?,value?,unit?,known:boolean,type:'numeric'|'symbolic'}), relations (array of equation/constraint strings), targets (array of strings), constraints (array of short strings), context (string), subjectHint?:'quantitative'|'conceptual'|'mixed', plan (array of exactly ${marks} items where each item is {step:number, goal:'select relation'|'resolve components'|'balance forces'|'substitute & evaluate'|'compute next quantity'|'derive formula'|'identify concept'|'compare/contrast'|'classify', mustProduce:'number'|'formula'|'fact', note?:string}). No prose.`;
     const parseRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -106,7 +106,7 @@ export default async (req: Request) => {
     if (!parsedSummary) parsedSummary = { givens: [], relations: [], target: '', constants: [], notes: '' };
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
-    const genInstruction = `\n\nUsing the ProblemSummary below, generate EXACTLY ${marks} MCQs that lead the learner step-by-step to the solution. Follow the plan if provided. Rules:\n- Each MCQ must have: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step.\n- Options MUST be concrete numbers with units or explicit formulas/relations; DO NOT use meta-options like 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Questions MUST require a calculation, relation selection, component resolution, or formula derivation — NOT recalling givens from the statement.\n- Hints MUST name the specific relation (e.g., 'Apply F = ma along the plane; include μN and mg sinα.').\n- Explanation MUST show the governing relation and a short substitution/calculation.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
+    const genInstruction = `\n\nUsing the ProblemSummary below, generate EXACTLY ${marks} MCQs that lead the learner step-by-step to the solution. Follow the plan if provided. Mode: if subjectHint is 'quantitative' (or plan goals are computational), prefer numeric/formula tasks; if 'conceptual', prefer concise factual tasks tied to targets (no invented constants). Rules:\n- Each MCQ must have: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step.\n- BAN meta-options like 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Quantitative mode: options must be numbers with units or explicit formulas; show relation + substitution in explanation.\n- Conceptual mode: options must be short factual statements (not opinions), each tied to syllabus-level facts; explanation cites the relevant fact/reasoning.\n- Questions must not ask to recall verbatim given text (e.g., 'what is the mass given?').\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
     const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 3500)}` }, { type: 'text', text: genInstruction } ];
     // Also include the original text (trimmed) to preserve context
     genContent.unshift({ type: 'text', text: (userTextRaw.length > 4000 ? userTextRaw.slice(0, 4000) : userTextRaw) });
@@ -376,7 +376,7 @@ export default async (req: Request) => {
     const ensured = (parsed as any) as { mcqs: any[]; solution: any };
     // Server-side validator to drop low-quality items and request replacements if needed
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
-    const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement/i.test(q);
+    const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement|according to the text/i.test(q);
     if (Array.isArray(ensured.mcqs)) {
       ensured.mcqs = ensured.mcqs.filter((m: any) => {
         const q = String(m?.question || '');

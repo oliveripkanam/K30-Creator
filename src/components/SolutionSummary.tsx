@@ -131,7 +131,11 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
                   <p className="text-xs">{originalQuestion.content}</p>
                 </div>
               )}
-              {/* Removed AI-Extracted Question Text per request */}
+              <div className="mt-2">
+                <p className="text-sm leading-relaxed">
+                  {originalQuestion.extractedText || originalQuestion.content}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
