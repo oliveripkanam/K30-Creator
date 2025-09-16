@@ -534,10 +534,7 @@ export default function App() {
       // Refresh DB-backed totals, tokens, and mistakes after save
       try {
         await Promise.race([
-          Promise.all([
-            refreshDashboardMetrics(user.id),
-            refreshTopMistakes(user.id),
-          ]),
+          refreshDashboardMetrics(user.id),
           new Promise((resolve) => setTimeout(resolve, 5000)),
         ]);
       } catch {}
@@ -639,31 +636,7 @@ export default function App() {
     }
   };
 
-  // Fetch top mistakes for dashboard (aggregated across duplicate rows)
-  const refreshTopMistakes = async (userId: string, filters?: { subject?: string; syllabus?: string; year?: string }) => {
-    try {
-      let q = supabase
-        .from('v_user_focus_areas')
-        .select('subject, syllabus, year, wrong_steps, last_seen')
-        .eq('user_id', userId);
-      if (filters?.subject) q = q.eq('subject', filters.subject);
-      if (filters?.syllabus) q = q.eq('syllabus', filters.syllabus);
-      if (filters?.year) q = q.eq('year', filters.year);
-      const { data: rows } = await q.limit(1000);
-      const items: any[] = (rows || []).map((r: any, i: number) => ({
-        id: `${r.subject || 'Unknown'}-${r.syllabus || 'Unknown'}-${r.year || 'Unknown'}-${i}`,
-        category: r.subject || 'Unknown',
-        description: `${r.syllabus || 'Unknown'} • ${r.year || 'Unknown'}`,
-        count: Number(r.wrong_steps || 0),
-        lastOccurred: new Date(r.last_seen || Date.now()),
-        examples: [],
-        subject: r.subject,
-        syllabus: r.syllabus,
-        year: r.year,
-      })).sort((a, b) => b.count - a.count).slice(0, 3);
-      setUser((prev) => prev ? { ...prev, commonMistakes: items } : prev);
-    } catch {}
-  };
+  // Removed focus areas/mistakes aggregation; trend card replaces it
 
   const calculateTokens = (marks: number, mcqCount: number, timeSpent: number): number => {
     let baseTokens = marks * 10; // 10 tokens per mark
@@ -747,8 +720,7 @@ export default function App() {
       // We no longer write to the `mistakes` table; focus areas are computed from mcq_steps + questions views.
     }
 
-    // Refresh dashboard mistakes
-    void refreshTopMistakes(user!.id);
+    // No-op: mistakes card removed
   };
 
   const loadMockCompletedQuestions = () => {

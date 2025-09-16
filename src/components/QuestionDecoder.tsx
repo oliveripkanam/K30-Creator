@@ -52,7 +52,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
 
   const steps = [
     'Analyzing question content...',
-    'Identifying key physics concepts...',
+    'Identifying key concepts...',
     'Breaking down into logical steps...',
     'Generating multiple choice questions...',
     'Creating hints and explanations...',
@@ -172,6 +172,31 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
           if (Array.isArray(data.mcqs) && data.solution) {
+            // Enforce MCQ count equals marks (top-up via simple synthesis if needed)
+            let mcqsOut = Array.isArray(data.mcqs) ? data.mcqs.slice(0) : [];
+            const need = Math.max(0, Math.min(8, question.marks) - mcqsOut.length);
+            if (need > 0) {
+              const base = mcqsOut.length;
+              for (let i = 0; i < need; i++) {
+                const stepNum = base + i + 1;
+                mcqsOut.push({
+                  id: `client-fill-${Date.now()}-${i}`,
+                  question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
+                  options: [
+                    'State the relevant formula/law',
+                    'Substitute given values',
+                    'Compute the intermediate result',
+                    'None of the above'
+                  ],
+                  correctAnswer: 0,
+                  hint: 'Recall the formula that directly links known values to the target of this step.',
+                  explanation: 'Using the correct governing formula at each step is essential before substitution and computation.',
+                  step: stepNum,
+                  calculationStep: undefined
+                });
+              }
+            }
+
             let transformedSolution = data.solution;
             if (typeof data.solution.finalAnswer === 'object') {
               const answerObj = data.solution.finalAnswer;
@@ -185,7 +210,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             if (!cancelled) {
               setProgress(100);
               setIsComplete(true);
-              onDecoded(data.mcqs, transformedSolution);
+              onDecoded(mcqsOut.slice(0, Math.min(8, question.marks)), transformedSolution);
             }
             return;
           }
