@@ -287,6 +287,29 @@ export default function App() {
       (window as any).__k30_answerLog = [];
       (window as any).__k30_lastScore = { correct: [], wrong: [] };
     } catch {}
+
+    // Fire-and-forget hint refinement to avoid blocking decode
+    (async () => {
+      try {
+        const headerParts: string[] = [];
+        if ((currentQuestion as any)?.subject) headerParts.push(`Subject: ${(currentQuestion as any).subject}`);
+        if ((currentQuestion as any)?.syllabus) headerParts.push(`Syllabus: ${(currentQuestion as any).syllabus}`);
+        if ((currentQuestion as any)?.level) headerParts.push(`Level: ${(currentQuestion as any).level}`);
+        const header = headerParts.join(' • ');
+        const originalText = String((currentQuestion as any)?.extractedText || (currentQuestion as any)?.content || '').slice(0, 600);
+        const items = generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, hint: m.hint }));
+        const res = await fetch('/api/ai-refine-hints', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ header, originalText, items })
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const arr: Array<{ id: string; hint: string }> = Array.isArray(data?.hints) ? data.hints : [];
+        if (!arr.length) return;
+        const map = new Map(arr.map(h => [h.id, h.hint] as const));
+        setMCQs(prev => prev.map(m => map.has(m.id) ? { ...m, hint: map.get(m.id)! } : m));
+      } catch {}
+    })();
   };
 
   const handleMCQComplete = () => {
