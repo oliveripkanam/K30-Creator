@@ -309,31 +309,95 @@ export default function App() {
       const sessRes: any = (await Promise.race([sessionPromise, timeoutPromise])) as any;
       const hasSessionNow = !!sessRes?.data?.session;
       console.log('[persist] start', { hasSession: hasSessionNow, userId: user.id });
-      console.log('[persist] inserting into questions...');
-      const insertQuestions = supabase
-        .from('questions')
-        .insert({
-          user_id: user.id,
-          source_type: currentQuestion.type,
-          marks: currentQuestion.marks,
-          original_input: currentQuestion.content,
-          extracted_text: currentQuestion.extractedText ?? null,
-          decoded_at: new Date().toISOString(),
-          time_spent_minutes: timeSpent,
-          tokens_earned: tokensEarned,
-          solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
-        })
-        .select('id')
-        .single();
 
-      const abortAfter = new Promise((_, reject) => setTimeout(() => reject(new Error('questions insert timeout after 8s')), 8000));
-      const { data: inserted, error } = (await Promise.race([insertQuestions, abortAfter])) as any;
-      if (error) {
-        console.error('[persist] insert questions failed', { error });
-        throw error;
+      // Helper: REST fallback using access_token from localStorage if session missing
+      const restInsertQuestions = async (): Promise<{ id?: string }> => {
+        try {
+          const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+          const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+          // Find access token in localStorage (key starts with sb- and ends with -auth-token)
+          let accessToken = '';
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i) || '';
+              if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+                const v = localStorage.getItem(k) || '';
+                const parsed = JSON.parse(v || '{}');
+                accessToken = parsed?.access_token || '';
+                if (accessToken) break;
+              }
+            }
+          } catch {}
+          if (!envUrl || !envAnon) throw new Error('missing supabase env');
+          if (!accessToken) throw new Error('missing access token');
+          const body = JSON.stringify({
+            user_id: user.id,
+            source_type: currentQuestion.type,
+            marks: currentQuestion.marks,
+            original_input: currentQuestion.content,
+            extracted_text: currentQuestion.extractedText ?? null,
+            decoded_at: new Date().toISOString(),
+            time_spent_minutes: timeSpent,
+            tokens_earned: tokensEarned,
+            solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
+          });
+          const resp = await fetch(`${envUrl}/rest/v1/questions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+              'apikey': envAnon,
+              'Prefer': 'return=representation',
+            } as any,
+            body,
+          });
+          const txt = await resp.text();
+          console.log('[persist] REST questions status', resp.status);
+          if (!resp.ok) throw new Error(`rest insert questions failed ${resp.status}: ${txt}`);
+          const arr = JSON.parse(txt || '[]');
+          return arr?.[0] || {};
+        } catch (err) {
+          console.error('[persist] REST insert questions failed', err);
+          throw err as any;
+        }
+      };
+
+      console.log('[persist] inserting into questions...');
+      let insertedId: string | undefined;
+      if (!hasSessionNow) {
+        // Try REST fallback first when session appears missing
+        const inserted = await Promise.race([
+          restInsertQuestions(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('questions insert timeout after 8s')), 8000)),
+        ]) as any;
+        insertedId = inserted?.id;
+      } else {
+        const insertQuestions = supabase
+          .from('questions')
+          .insert({
+            user_id: user.id,
+            source_type: currentQuestion.type,
+            marks: currentQuestion.marks,
+            original_input: currentQuestion.content,
+            extracted_text: currentQuestion.extractedText ?? null,
+            decoded_at: new Date().toISOString(),
+            time_spent_minutes: timeSpent,
+            tokens_earned: tokensEarned,
+            solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
+          })
+          .select('id')
+          .single();
+        const abortAfter = new Promise((_, reject) => setTimeout(() => reject(new Error('questions insert timeout after 8s')), 8000));
+        const { data: inserted, error } = (await Promise.race([insertQuestions, abortAfter])) as any;
+        if (error) {
+          console.error('[persist] insert questions failed', { error });
+          throw error;
+        }
+        insertedId = inserted?.id;
       }
-      console.log('[persist] questions insert ok', inserted);
-      const questionId = inserted?.id;
+
+      console.log('[persist] questions insert ok', { id: insertedId });
+      const questionId = insertedId;
       if (questionId) {
         const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
         console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
