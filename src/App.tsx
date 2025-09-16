@@ -300,7 +300,7 @@ export default function App() {
         const items = generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, hint: m.hint }));
         const res = await fetch('/api/ai-refine-hints', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ header, originalText, items })
+          body: JSON.stringify({ header, originalText, subject: (currentQuestion as any)?.subject, syllabus: (currentQuestion as any)?.syllabus, level: (currentQuestion as any)?.level, items })
         });
         if (!res.ok) return;
         const data = await res.json();

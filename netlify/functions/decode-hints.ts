@@ -1,6 +1,9 @@
 type HintRefineRequest = {
   header?: string;
   originalText?: string;
+  subject?: string;
+  syllabus?: string;
+  level?: string;
   items: Array<{ id: string; question: string; options: string[]; hint?: string }>;
 };
 type HintRefineResponse = { hints: Array<{ id: string; hint: string }> };
@@ -27,13 +30,50 @@ export default async (req: Request) => {
 
   let url: string; try { url = buildUrl(rawEndpoint, deployment, apiVersion); } catch (e: any) { return respond(500, { error: e?.message || 'Invalid Azure config' }); }
 
-  const header = String(payload.header || '').slice(0, 120);
-  const original = String(payload.originalText || '').slice(0, 600);
-  const items = Array.isArray(payload.items) ? payload.items.slice(0, 20) : [];
+  const header = String(payload.header || '').slice(0, 160);
+  const original = String(payload.originalText || '').slice(0, 700);
+  const items = Array.isArray(payload.items) ? payload.items.slice(0, 16) : [];
+
+  // Heuristic mode guess per item to aid the model while remaining subject-agnostic
+  const guessMode = (q: string, options: string[]): string => {
+    const t = (q || '').toLowerCase();
+    const optJoined = (options || []).join(' \n ').toLowerCase();
+    const hasNumber = /\d/.test(t) || /\d/.test(optJoined);
+    const hasEq = /[=+\-*/^]|sin|cos|tan|sqrt|\bmol\b|m\/s|kg|n\b|\bpa\b|°/.test(t + ' ' + optJoined);
+    if (hasNumber || hasEq) return 'quantitative';
+    if (/(what is|define|best describes|which .* is|identify|classify)/.test(t)) return 'definition';
+    if (/(graph|table|trend|axis|slope|y-intercept)/.test(t)) return 'graph';
+    if (/(variable|control|hypothesis|apparatus|safety)/.test(t)) return 'experiment';
+    if (/(sequence|first|next|step)/.test(t)) return 'process';
+    return 'conceptual';
+  };
+
+  const prepared = items.map(it => ({
+    id: String(it.id || ''),
+    question: String(it.question || '').slice(0, 260),
+    options: (it.options || []).map(o => String(o || '').slice(0, 140)),
+    mode: guessMode(it.question || '', it.options || []),
+  }));
+
+  const rules = `Rewrite hints for each item with strong, subject-agnostic guidance. Output JSON ONLY: {"hints":[{"id":"<id>","hint":"<text>"}, ...]}
+Rules:
+- Prefix with 'Hint: '. Keep 11–18 words.
+- Use the item's mode to choose style:
+  • quantitative: cite relation family or quantity linkage (e.g., force–mass–acceleration), or unit/axis cues; do not compute.
+  • definition/conceptual: cite key attribute/category/mechanism/time-scale; avoid saying 'definition'.
+  • graph: mention axis/gradient/intercept or read-off method.
+  • experiment: identify variable/control/apparatus principle or safety rationale.
+  • process: indicate next logical action in the sequence without revealing the step content.
+- Include ONE discriminative cue: attribute/mechanism, elimination rule, or limited contrast vs a common distractor.
+- Vary verbs across hints (Use/Check/Note/Look for/Compare/Consider). Limit contrast words ('unlike','vs') to at most one in three hints.
+- Never use generic/meta phrasing (avoid: recall/consider/choose/definition/think/clear fact/directly answers).
+- Do NOT copy an option verbatim or reveal the exact answer text.`;
+
   const msg = [
-    { type: 'text', text: header },
+    { type: 'text', text: `${header}` },
     { type: 'text', text: `Original text (trimmed):\n${original}` },
-    { type: 'text', text: `Rewrite hints with discriminative cues. Output JSON only: { "hints": [{"id":"<mcq id>", "hint":"<rewritten>"}, ...] }. Rules:\n- Start with 'Hint: ' and keep 11–18 words.\n- Reference the stem concept (key term) or focus (e.g., time scale) explicitly.\n- Use a MIX of cue types across hints: (a) key attribute/mechanism/time scale, (b) elimination rule, (c) limited contrast vs a common distractor.\n- Vary verbs: Note/Use/Check/Look for/Consider.\n- Avoid generic/meta phrasing and do not reveal exact answer text.\nInput: ${JSON.stringify(items)}` }
+    { type: 'text', text: `Items:\n${JSON.stringify(prepared)}` },
+    { type: 'text', text: rules }
   ];
 
   try {
@@ -50,9 +90,46 @@ export default async (req: Request) => {
     const content = data?.choices?.[0]?.message?.content || '';
     let refined: any = null;
     try { refined = JSON.parse(content); } catch { const m = content.match(/\{[\s\S]*\}/); if (m) { try { refined = JSON.parse(m[0]); } catch {} } }
-    if (!refined || !Array.isArray(refined.hints)) return respond(200, { hints: [] } satisfies HintRefineResponse);
-    const clean = refined.hints.map((h: any) => ({ id: String(h?.id || ''), hint: String(h?.hint || '').slice(0, 180) }));
-    return respond(200, { hints: clean } satisfies HintRefineResponse);
+    let out: Array<{ id: string; hint: string }> = Array.isArray(refined?.hints) ? refined.hints : [];
+    // Post-filters: ban generic/meta and de-duplicate; enforce word-count and contrast budget
+    const banned = /(recall|definition|choose the option|clear fact|directly answers|think about|consider)/i;
+    const normalize = (s: string) => String(s || '').trim().replace(/\s+/g, ' ');
+    let contrastBudget = Math.max(1, Math.floor((out.length || 1) / 3));
+    const uniq = new Set<string>();
+    out = out.map((h) => ({ id: String(h?.id || ''), hint: normalize(h?.hint || '') }))
+      .map((h) => {
+        let t = h.hint;
+        // prefix if missing
+        if (!/^hint:/i.test(t)) t = `Hint: ${t}`;
+        // trim length
+        const words = t.split(/\s+/);
+        if (words.length > 18) t = words.slice(0, 18).join(' ');
+        if (words.length < 11) t = `${t} Look for a key attribute.`.slice(0, 180);
+        // filter banned
+        if (banned.test(t)) t = t.replace(banned, '').replace(/\s+/g, ' ').trim();
+        // manage contrast quota
+        if (/\bunlike\b|\bvs\b/i.test(t)) {
+          if (contrastBudget > 0) { contrastBudget--; }
+          else t = t.replace(/[,;]?\s*(unlike|vs)\b[\s\S]*$/i, '').trim() + '. Use an attribute to decide.';
+        }
+        h.hint = t.trim();
+        return h;
+      })
+      .filter((h) => h.id && h.hint.length > 8)
+      .filter((h) => { const k = h.hint.toLowerCase(); if (uniq.has(k)) return false; uniq.add(k); return true; });
+
+    // If empty after filters, provide safe fallbacks based on mode guesses
+    if (!out.length) {
+      out = prepared.map((it) => ({ id: it.id, hint:
+        it.mode === 'quantitative' ? 'Hint: check units and link knowns with the governing relation.' :
+        it.mode === 'graph' ? 'Hint: use axis labels to decide; consider gradient or intercept where relevant.' :
+        it.mode === 'experiment' ? 'Hint: identify the variable or control that isolates the effect.' :
+        it.mode === 'process' ? 'Hint: choose the next logical action in the sequence, not the outcome.' :
+        'Hint: use a key attribute/mechanism of the term to eliminate distractors.'
+      }));
+    }
+
+    return respond(200, { hints: out } satisfies HintRefineResponse);
   } catch (e: any) {
     return respond(500, { error: 'Server error', details: String(e?.message || e) });
   }
