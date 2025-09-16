@@ -155,8 +155,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             const outputs: string[] = [];
             for (let p = 1; p <= pageCount; p++) {
               const page = await pdf.getPage(p);
-              const viewport = page.getViewport({ scale: 1.5 });
-              const targetW = 1024;
+              const viewport = page.getViewport({ scale: 1.25 });
+              const targetW = 900;
               const scale = Math.min(2.0, targetW / viewport.width);
               const v2 = page.getViewport({ scale });
               const canvas = document.createElement('canvas');
@@ -165,7 +165,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               const ctx = canvas.getContext('2d');
               if (!ctx) continue;
               await page.render({ canvasContext: ctx as any, viewport: v2 }).promise;
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
               const idx = dataUrl.indexOf(',');
               outputs.push(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
             }
@@ -180,7 +180,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             const img = new Image();
             img.src = `data:${mime};base64,${base64}`;
             await new Promise((resolve, reject) => { img.onload = resolve as any; img.onerror = reject as any; });
-            const maxW = 900; // target width
+            const maxW = 768; // tighter target width to reduce payload size
             const scale = Math.min(1, maxW / (img.width || maxW));
             const w = Math.max(1, Math.floor((img.width || maxW) * scale));
             const h = Math.max(1, Math.floor((img.height || maxW) * scale));
@@ -189,7 +189,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             const ctx = canvas.getContext('2d');
             if (!ctx) return base64;
             ctx.drawImage(img, 0, 0, w, h);
-            const out = canvas.toDataURL('image/jpeg', 0.55);
+            const out = canvas.toDataURL('image/jpeg', 0.5);
             const idx = out.indexOf(',');
             return idx >= 0 ? out.slice(idx + 1) : out;
           } catch {
@@ -214,6 +214,10 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         // Build single-call decode payload with optional text and images[]
         const images: Array<{ base64: string; mimeType: string }> = [];
         let textForDecode = question.type === 'text' ? (question.extractedText || question.content) : (question.extractedText || '');
+        // Trim very long text to keep server requests under gateway timeouts
+        if (textForDecode && textForDecode.length > 6000) {
+          textForDecode = textForDecode.slice(0, 6000);
+        }
         if (question.fileData?.base64 && question.fileData?.mimeType) {
           const mime = question.fileData.mimeType.toLowerCase();
           if (mime.startsWith('image/')) {

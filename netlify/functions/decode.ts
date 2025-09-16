@@ -42,15 +42,17 @@ export default async (req: Request) => {
 
   const headerParts = [
     subject ? `Subject: ${subject}` : '',
-    syllabus ? `Syllabus/Board: ${syllabus}` : '',
-    level ? `Year/Level: ${level}` : '',
+    syllabus ? `Syllabus: ${syllabus}` : '',
+    level ? `Level: ${level}` : '',
   ].filter(Boolean);
-  const userTextRaw = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
+  // Keep headers compact and cap overall user text for latency/limits
+  const userTextHeader = headerParts.length ? `${headerParts.join(' • ')}\n` : '';
+  const userTextRaw = (userTextHeader + (text || '')).slice(0, 6500);
   // Minimal guardrails to keep outputs correct and structured
   const computeReq = `\n\nCompute step-by-step and choose the option that matches the computed value; verify before finalizing.`;
   const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
   // Trim overly long inputs to keep requests fast and under provider limits, reserving room for instructions
-  const maxCore = 8000 - (computeReq.length + formatReq.length);
+  const maxCore = 7200 - (computeReq.length + formatReq.length);
   const userText = (userTextRaw.length > maxCore ? userTextRaw.slice(0, Math.max(0, maxCore)) : userTextRaw) + computeReq + formatReq;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
@@ -86,14 +88,14 @@ export default async (req: Request) => {
     const hasImage = baseContent.some((p) => p?.type === 'image_url');
 
     // STEP 1: Extract concise structured givens/relations JSON + a step plan of length 'marks'
-    const parseInstruction = `\n\nReturn ONLY JSON with keys: quantities (array of {name,symbol?,value?,unit?,known:boolean,type:'numeric'|'symbolic'}), relations (array of equation/constraint strings), targets (array of strings), constraints (array of short strings), context (string), subjectHint?:'quantitative'|'conceptual'|'mixed', plan (array of exactly ${marks} items where each item is {step:number, goal:'select relation'|'resolve components'|'balance forces'|'substitute & evaluate'|'compute next quantity'|'derive formula'|'identify concept'|'compare/contrast'|'classify', mustProduce:'number'|'formula'|'fact', note?:string}). No prose.`;
+    const parseInstruction = `\n\nReturn JSON only: { quantities:[{name,symbol?,value?,unit?,known:boolean,type:'numeric'|'symbolic'}], relations:[string], targets:[string], constraints:[string], context:string, subjectHint?:'quantitative'|'conceptual'|'mixed', plan:[{step:number, goal:'select relation'|'resolve components'|'balance forces'|'substitute & evaluate'|'compute next quantity'|'derive formula'|'identify concept'|'compare/contrast'|'classify', mustProduce:'number'|'formula'|'fact', note?:string}] }. Plan length must be exactly ${marks}.`;
     const parseRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
         response_format: { type: 'text' },
         temperature: 0.1,
-        messages: [ { role: 'user', content: [ ...baseContent, { type: 'text', text: parseInstruction } ] } ]
+        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 2000) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ]
       })
     });
     dbg('step1(parse) status', parseRes.status);
@@ -106,10 +108,10 @@ export default async (req: Request) => {
     if (!parsedSummary) parsedSummary = { givens: [], relations: [], target: '', constants: [], notes: '' };
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
-    const genInstruction = `\n\nUsing the ProblemSummary below, generate EXACTLY ${marks} MCQs that lead the learner step-by-step to the solution. Follow the plan if provided. Mode: if subjectHint is 'quantitative' (or plan goals are computational), prefer numeric/formula tasks; if 'conceptual', prefer concise factual tasks tied to targets (no invented constants). Rules:\n- Each MCQ must have: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step.\n- BAN meta-options like 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Quantitative mode: options must be numbers with units or explicit formulas; show relation + substitution in explanation.\n- Conceptual mode: options must be short factual statements (not opinions), each tied to syllabus-level facts; explanation cites the relevant fact/reasoning.\n- Questions must not ask to recall verbatim given text (e.g., 'what is the mass given?').\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
-    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 3500)}` }, { type: 'text', text: genInstruction } ];
-    // Also include the original text (trimmed) to preserve context
-    genContent.unshift({ type: 'text', text: (userTextRaw.length > 4000 ? userTextRaw.slice(0, 4000) : userTextRaw) });
+    const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Quantitative: options are numbers with units or explicit formulas; explanation shows relation+substitution.\n- Conceptual: options are short factual statements; explanation cites the fact/reasoning.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
+    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 2800)}` }, { type: 'text', text: genInstruction } ];
+    // Include a compact original text snippet for grounding
+    genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 2000) });
     // Attach images again if any
     if (hasImage) {
       for (let i = 0; i < Math.min(2, images.length); i++) {
@@ -138,9 +140,7 @@ export default async (req: Request) => {
         body: JSON.stringify({
           response_format: { type: 'text' },
           temperature: 0.1,
-          messages: [
-            { role: 'user', content: [{ type: 'text', text: userText }] }
-          ]
+          messages: [ { role: 'user', content: [{ type: 'text', text: userText.slice(0, 3000) }] } ]
         })
       });
       dbg('response (retry text-only) status', retryRes2.status);
