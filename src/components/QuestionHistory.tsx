@@ -103,7 +103,7 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
           timestamp: new Date(q.decoded_at),
           completedAt: new Date(q.decoded_at),
           tokensEarned: q.tokens_earned || 0,
-          mcqsGenerated: 0,
+          mcqsGenerated: q.marks || 0,
           timeSpent: q.time_spent_minutes || 0,
           solutionSummary: q.solution_summary ? JSON.parse(q.solution_summary) : { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] }
         }));
@@ -238,9 +238,12 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
 
       <div className="max-w-6xl mx-auto p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6">
         {loading && (
-          <Card>
-            <CardContent className="p-6">Loading history...</CardContent>
-          </Card>
+          <div className="fixed inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center">
+            <div className="flex flex-col items-center space-y-3">
+              <div className="w-10 h-10 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+              <p className="text-sm text-blue-700">Loading history…</p>
+            </div>
+          </div>
         )}
         {error && (
           <Card>
@@ -409,7 +412,7 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {question.timeSpent} min • {question.mcqsGenerated} MCQs
+                        {question.timeSpent || 0} min · {question.mcqsGenerated || 0} MCQs
                       </p>
                     </div>
                   </div>
@@ -435,18 +438,13 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm font-medium mb-2">Key Formulas:</p>
+                        <p className="text-sm font-medium mb-2">Key Points:</p>
                         <div className="flex flex-wrap gap-1">
-                          {question.solutionSummary.keyFormulas.slice(0, 2).map((formula, index) => (
+                          {(question.solutionSummary.workingSteps || []).slice(0, 2).map((p, index) => (
                             <Badge key={index} variant="outline" className="text-xs">
-                              {formula}
+                              {p}
                             </Badge>
                           ))}
-                          {question.solutionSummary.keyFormulas.length > 2 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{question.solutionSummary.keyFormulas.length - 2} more
-                            </Badge>
-                          )}
                         </div>
                       </div>
                     </div>
