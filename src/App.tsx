@@ -624,12 +624,16 @@ export default function App() {
       const aggregate = new Map<string, { id: string; category: string; description: string; count: number; lastOccurred: Date; examples: string[] }>();
       (rows || []).forEach((r: any) => {
         const key = `${r.category}|||${r.description}`;
-        const cur = aggregate.get(key) || { id: key, category: r.category, description: r.description, count: 0, lastOccurred: new Date(r.last_occurred || Date.now()), examples: [] };
+        const cur = aggregate.get(key) || { id: key, category: r.category, description: r.description, count: 0, lastOccurred: new Date(0), examples: [] };
         cur.count += Number(r.count || 1);
-        cur.lastOccurred = new Date(r.last_occurred || cur.lastOccurred);
+        const occurred = new Date(r.last_occurred || Date.now());
+        if (!cur.lastOccurred || occurred > cur.lastOccurred) cur.lastOccurred = occurred;
         aggregate.set(key, cur);
       });
-      const top3 = Array.from(aggregate.values()).sort((a, b) => b.count - a.count).slice(0, 3);
+      const top3 = Array.from(aggregate.values()).sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return (b.lastOccurred?.getTime?.() || 0) - (a.lastOccurred?.getTime?.() || 0);
+      }).slice(0, 3);
       setUser((prev) => prev ? { ...prev, commonMistakes: top3 } : prev);
     } catch {}
   };
