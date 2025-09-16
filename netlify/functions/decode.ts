@@ -105,10 +105,12 @@ export default async (req: Request) => {
       const c = pr?.choices?.[0]?.message?.content || '';
       try { parsedSummary = JSON.parse(c); } catch { const m = c.match(/\{[\s\S]*\}/); if (m) { try { parsedSummary = JSON.parse(m[0]); } catch {} } }
     }
-    if (!parsedSummary) parsedSummary = { givens: [], relations: [], target: '', constants: [], notes: '' };
+    if (!parsedSummary) parsedSummary = { givens: [], relations: [], targets: [], constraints: [], context: '', subjectHint: 'mixed', plan: [] };
+    const subjectHint: string = String(parsedSummary?.subjectHint || '').toLowerCase();
+    const isConceptual = subjectHint === 'conceptual' || (!/\d/.test(userTextRaw));
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
-    const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Quantitative: options are numbers with units or explicit formulas; explanation shows relation+substitution.\n- Conceptual: options are short factual statements; explanation cites the fact/reasoning.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
+    const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Quantitative: options are numbers with units or explicit formulas; explanation shows relation+substitution.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the focus (e.g., short-term vs long-term).\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
     const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 2800)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
     genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 2000) });
@@ -377,6 +379,7 @@ export default async (req: Request) => {
     // Server-side validator to drop low-quality items and request replacements if needed
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
     const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement|according to the text/i.test(q);
+    const isMultiItemConceptual = (q: string) => /\b(two|both|select two|choose two|two short|two long|multiple)\b/i.test(q);
     if (Array.isArray(ensured.mcqs)) {
       ensured.mcqs = ensured.mcqs.filter((m: any) => {
         const q = String(m?.question || '');
@@ -384,6 +387,7 @@ export default async (req: Request) => {
         if (isRecallQuestion(q)) return false;
         if (opts.length !== 4) return false;
         if (opts.some((o: string) => isMetaOption(o))) return false;
+        if (isConceptual && isMultiItemConceptual(q)) return false;
         return true;
       });
     }
@@ -391,7 +395,9 @@ export default async (req: Request) => {
     if ((ensured.mcqs as any[]).length < marks) {
       try {
         const missing = Math.max(0, marks - (ensured.mcqs as any[]).length);
-        const badNote = 'Replace invalid or missing steps. Rules: no recall questions, options must be numeric or formula, provide hint naming the relation and an explanation with substitution.';
+        const badNote = isConceptual
+          ? 'Replace invalid or missing steps. Conceptual mode: ONE atomic fact per MCQ, options are short factual statements tied to the target; hint references the focus (e.g., short-term vs long-term); explanation cites the fact/reasoning. No meta-options. No recall of given text.'
+          : 'Replace invalid or missing steps. Quantitative mode: numeric or formula options; hint names the governing relation; explanation shows relation + substitution. No meta-options. No recall of given text.';
         const replContent: any[] = [
           { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 3000)}` },
           { type: 'text', text: `Generate ONLY ${missing} MCQs continuing the plan. ${badNote}` }

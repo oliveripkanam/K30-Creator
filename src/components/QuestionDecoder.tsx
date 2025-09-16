@@ -74,6 +74,13 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
 
   const deriveHintFromQuestion = (mcq: MCQ, q: Question): string | null => {
     const text = `${q.extractedText || q.content} ${mcq.question}`.toLowerCase();
+    // Biology / conceptual cues
+    if (/(short\-term|long\-term|effect|risk|symptom|cause|mechanism|process)/.test(text)) {
+      if (/short\-term/.test(text)) return 'Focus on immediate physiological or behavioral effects (hours to days).';
+      if (/long\-term/.test(text)) return 'Think chronic risks that develop over months or years.';
+      return 'Identify the category (short-term vs long-term) and pick one clear, syllabus-valid fact.';
+    }
+    // General quantitative cues
     if (text.includes('velocity') || text.includes('speed')) return 'Identify knowns, then pick the relation linking them to the asked quantity.';
     if (text.includes('force') || text.includes('mass') || text.includes('acceleration')) return 'Link given quantities with one governing relation before computing.';
     if (text.includes('concentration') || text.includes('mole') || text.includes('ph')) return 'Match the asked quantity to the formula that directly relates your knowns.';
