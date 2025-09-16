@@ -506,10 +506,15 @@ export default function App() {
         }
       }
       // Refresh DB-backed totals, tokens, and mistakes after save
-      await Promise.all([
-        refreshDashboardMetrics(user.id),
-        refreshTopMistakes(user.id),
-      ]);
+      try {
+        await Promise.race([
+          Promise.all([
+            refreshDashboardMetrics(user.id),
+            refreshTopMistakes(user.id),
+          ]),
+          new Promise((resolve) => setTimeout(resolve, 5000)),
+        ]);
+      } catch {}
       setHasPersisted(true);
     } catch (e) {
       console.warn('persist completion failed', e);
@@ -524,6 +529,8 @@ export default function App() {
     // Fire-and-forget save, navigate immediately to avoid UI getting stuck
     void saveCompletion(false);
     setIsDashLoading(true);
+    // Safety: auto-hide after 9s even if refresh hangs
+    try { setTimeout(() => setIsDashLoading(false), 9000); } catch {}
     setCurrentState('dashboard');
   };
 
@@ -851,10 +858,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background">
       {isDashLoading && currentState === 'dashboard' && (
-        <div className="fixed inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-white/95 flex items-center justify-center">
           <div className="flex flex-col items-center space-y-3">
-            <div className="w-10 h-10 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
-            <p className="text-sm text-blue-700">Updating your dashboard…</p>
+            <div className="w-10 h-10 rounded-full border-4 border-black/20 border-t-black animate-spin" />
+            <p className="text-sm text-black">Updating your dashboard…</p>
           </div>
         </div>
       )}
