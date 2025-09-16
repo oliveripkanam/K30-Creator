@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { LoginPage } from './components/LoginPage';
 import { supabase } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
@@ -85,6 +85,8 @@ export default function App() {
   const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState<Date | null>(null);
   const [hasPersisted, setHasPersisted] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const autoSaveTriggeredRef = useRef<boolean>(false);
   // Removed session hydration on refresh by request
 
   // Mock user authentication (fallback)
@@ -260,11 +262,20 @@ export default function App() {
 
     // If already persisted, just navigate if requested
     if (hasPersisted) {
+      console.log('[persist] already persisted; skipping');
+      if (navigateAfter) setCurrentState('dashboard');
+      return;
+    }
+
+    // If a save is in-flight, avoid duplicate work (React StrictMode will re-fire effects)
+    if (isSaving) {
+      console.log('[persist] save already in progress; skipping');
       if (navigateAfter) setCurrentState('dashboard');
       return;
     }
 
     console.log('[persist] auto-save starting');
+    setIsSaving(true);
 
     const completedQuestion: CompletedQuestion = {
       ...currentQuestion,
@@ -335,17 +346,21 @@ export default function App() {
     } catch (e) {
       console.warn('persist completion failed', e);
     } finally {
+      setIsSaving(false);
       if (navigateAfter) setCurrentState('dashboard');
     }
   };
 
   const handleSolutionComplete = async () => {
-    await saveCompletion(true);
+    // Fire-and-forget save, navigate immediately to avoid UI getting stuck
+    void saveCompletion(false);
+    setCurrentState('dashboard');
   };
 
   useEffect(() => {
-    if (currentState === 'solution' && !hasPersisted) {
-      // Fire auto-save on entering summary
+    if (currentState === 'solution' && !hasPersisted && !autoSaveTriggeredRef.current) {
+      autoSaveTriggeredRef.current = true;
+      // Fire auto-save on entering summary (background)
       void saveCompletion(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
