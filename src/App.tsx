@@ -19,6 +19,9 @@ interface MistakeType {
   count: number;
   lastOccurred: Date;
   examples: string[];
+  subject?: string;
+  syllabus?: string;
+  year?: string;
 }
 
 interface User {
@@ -627,7 +630,7 @@ export default function App() {
       const aggregate = new Map<string, { id: string; category: string; description: string; count: number; lastOccurred: Date; examples: string[] }>();
       (rows || []).forEach((r: any) => {
         const key = `${r.category}|||${r.description}`;
-        const cur = aggregate.get(key) || { id: key, category: r.category, description: r.description, count: 0, lastOccurred: new Date(0), examples: [] };
+        const cur = aggregate.get(key) || { id: key, category: r.category, description: r.description, count: 0, lastOccurred: new Date(0), examples: [], subject: r.subject, syllabus: r.syllabus, year: r.year } as any;
         cur.count += Number(r.count || 1);
         const occurred = new Date(r.last_occurred || Date.now());
         if (!cur.lastOccurred || occurred > cur.lastOccurred) cur.lastOccurred = occurred;

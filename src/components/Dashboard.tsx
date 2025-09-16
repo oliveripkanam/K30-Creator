@@ -270,9 +270,21 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onFi
                       <span className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-200 flex items-center justify-center text-sm font-medium text-orange-800">
                         {index + 1}
                       </span>
-                      <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
-                        {mistake.category}
-                      </Badge>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
+                          {mistake.category}
+                        </Badge>
+                        { (mistake as any).syllabus && (
+                          <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
+                            {(mistake as any).syllabus}
+                          </Badge>
+                        )}
+                        { (mistake as any).year && (
+                          <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
+                            {(mistake as any).year}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                     <span className="text-xs font-medium text-orange-600 bg-orange-100 px-2 py-1 rounded-full">
                       {mistake.count}x
