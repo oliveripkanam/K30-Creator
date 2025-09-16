@@ -46,11 +46,12 @@ export default async (req: Request) => {
     level ? `Year/Level: ${level}` : '',
   ].filter(Boolean);
   const userTextRaw = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
-  // Minimal format instruction to avoid prose outputs
+  // Minimal guardrails to keep outputs correct and structured
+  const computeReq = `\n\nCompute step-by-step and choose the option that matches the computed value; verify before finalizing.`;
   const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
-  // Trim overly long inputs to keep requests fast and under provider limits, reserving room for formatReq
-  const maxCore = 8000 - formatReq.length;
-  const userText = (userTextRaw.length > maxCore ? userTextRaw.slice(0, Math.max(0, maxCore)) : userTextRaw) + formatReq;
+  // Trim overly long inputs to keep requests fast and under provider limits, reserving room for instructions
+  const maxCore = 8000 - (computeReq.length + formatReq.length);
+  const userText = (userTextRaw.length > maxCore ? userTextRaw.slice(0, Math.max(0, maxCore)) : userTextRaw) + computeReq + formatReq;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
@@ -91,6 +92,7 @@ export default async (req: Request) => {
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
         response_format: { type: 'text' },
+        temperature: 0.1,
         messages: [
           { role: 'user', content: messageContent }
         ]
@@ -107,6 +109,7 @@ export default async (req: Request) => {
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
           response_format: { type: 'text' },
+          temperature: 0.1,
           messages: [
             { role: 'user', content: [{ type: 'text', text: userText }] }
           ]
@@ -139,6 +142,7 @@ export default async (req: Request) => {
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
           response_format: { type: 'text' },
+          temperature: 0.1,
           messages: [
             { role: 'user', content: [{ type: 'text', text: `${userText}` }] }
           ]
@@ -166,6 +170,7 @@ export default async (req: Request) => {
               headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
               body: JSON.stringify({
                 response_format: { type: 'text' },
+                temperature: 0.1,
                 messages: [
                   { role: 'user', content: [{ type: 'text', text: userText }] }
                 ]
@@ -188,6 +193,7 @@ export default async (req: Request) => {
                 headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
                 body: JSON.stringify({
                   response_format: { type: 'text' },
+                  temperature: 0.1,
                   messages: [
                     { role: 'user', content: [{ type: 'text', text: `${userText}` }] }
                   ]
@@ -355,6 +361,7 @@ export default async (req: Request) => {
             headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
             body: JSON.stringify({
               response_format: { type: 'text' },
+              temperature: 0.1,
               messages: [
                 { role: 'user', content: [{ type: 'text', text: topUpUser }] }
               ]
