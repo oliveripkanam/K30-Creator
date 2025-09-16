@@ -443,10 +443,10 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
                       </div>
                       <div>
                         <p className="text-sm font-medium mb-2">Key Points:</p>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1 max-w-full overflow-hidden">
                           {(question.solutionSummary.workingSteps || []).slice(0, 2).map((p, index) => (
-                            <Badge key={index} variant="outline" className="text-xs">
-                              {p}
+                            <Badge key={index} variant="outline" className="text-xs whitespace-normal break-words">
+                              {p.slice(0, 140)}{p.length > 140 ? '…' : ''}
                             </Badge>
                           ))}
                         </div>

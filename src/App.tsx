@@ -600,24 +600,24 @@ export default function App() {
     }
   };
 
-  // Fetch top mistakes for dashboard (aggregated)
+  // Fetch top mistakes for dashboard (aggregated across duplicate rows)
   const refreshTopMistakes = async (userId: string) => {
     try {
       const { data: rows } = await supabase
         .from('mistakes')
         .select('category, description, count, last_occurred')
         .eq('user_id', userId)
-        .order('count', { ascending: false })
-        .limit(3);
-      const mapped = (rows || []).map((r: any, i: number) => ({
-        id: `${r.category}-${i}`,
-        category: r.category,
-        description: r.description,
-        count: Number(r.count || 0),
-        lastOccurred: new Date(r.last_occurred || Date.now()),
-        examples: [],
-      }));
-      setUser((prev) => prev ? { ...prev, commonMistakes: mapped } : prev);
+        .limit(1000);
+      const aggregate = new Map<string, { id: string; category: string; description: string; count: number; lastOccurred: Date; examples: string[] }>();
+      (rows || []).forEach((r: any) => {
+        const key = `${r.category}|||${r.description}`;
+        const cur = aggregate.get(key) || { id: key, category: r.category, description: r.description, count: 0, lastOccurred: new Date(r.last_occurred || Date.now()), examples: [] };
+        cur.count += Number(r.count || 1);
+        cur.lastOccurred = new Date(r.last_occurred || cur.lastOccurred);
+        aggregate.set(key, cur);
+      });
+      const top3 = Array.from(aggregate.values()).sort((a, b) => b.count - a.count).slice(0, 3);
+      setUser((prev) => prev ? { ...prev, commonMistakes: top3 } : prev);
     } catch {}
   };
 
