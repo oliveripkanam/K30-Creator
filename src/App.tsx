@@ -305,7 +305,7 @@ export default function App() {
       const hasSessionNow = !!sessRes?.data?.session;
       console.log('[persist] start', { hasSession: hasSessionNow, userId: user.id });
       console.log('[persist] inserting into questions...');
-      const { data: inserted, error } = await supabase
+      const insertQuestions = supabase
         .from('questions')
         .insert({
           user_id: user.id,
@@ -320,6 +320,9 @@ export default function App() {
         })
         .select('id')
         .single();
+
+      const abortAfter = new Promise((_, reject) => setTimeout(() => reject(new Error('questions insert timeout after 8s')), 8000));
+      const { data: inserted, error } = (await Promise.race([insertQuestions, abortAfter])) as any;
       if (error) {
         console.error('[persist] insert questions failed', { error });
         throw error;
@@ -329,7 +332,7 @@ export default function App() {
       if (questionId) {
         const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
         console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
-        const { error: stepsErr } = await supabase.from('mcq_steps').insert(
+        const stepsInsert = supabase.from('mcq_steps').insert(
           mcqs.map((m, i) => ({
             question_id: questionId,
             step_index: i,
@@ -341,6 +344,8 @@ export default function App() {
             answered_at: null,
           }))
         );
+        const stepsAbort = new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000));
+        const { error: stepsErr } = (await Promise.race([stepsInsert, stepsAbort])) as any;
         if (stepsErr) {
           console.error('[persist] insert mcq_steps failed', { error: stepsErr });
         } else {

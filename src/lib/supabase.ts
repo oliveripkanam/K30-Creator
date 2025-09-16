@@ -12,11 +12,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
-// Basic startup diagnostic
+// Basic startup diagnostic (dev only)
 try {
-  const masked = supabaseAnonKey ? supabaseAnonKey.slice(0, 6) + '...' : 'missing';
-  // eslint-disable-next-line no-console
-  console.log('[supabase] config', { url: supabaseUrl || 'missing', anonKeyPrefix: masked });
+  if (import.meta.env.DEV) {
+    const masked = supabaseAnonKey ? supabaseAnonKey.slice(0, 6) + '...' : 'missing';
+    // eslint-disable-next-line no-console
+    console.log('[supabase] config', { url: supabaseUrl || 'missing', anonKeyPrefix: masked });
+  }
 } catch {}
 
 
