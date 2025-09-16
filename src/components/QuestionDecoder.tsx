@@ -604,19 +604,12 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           <CardContent>
             <div className="bg-muted/50 p-4 rounded-lg">
               {question.type !== 'text' && (
-                <div className="mb-3 pb-3 border-b border-gray-200">
+                <div className="">
                   <p className="text-xs text-muted-foreground mb-1">Source:</p>
                   <p className="text-xs">{question.content}</p>
                 </div>
               )}
-              <div>
-                {question.type !== 'text' && (
-                  <p className="text-xs text-muted-foreground mb-2">AI-Extracted Question Text:</p>
-                )}
-                <p className="text-sm leading-relaxed">
-                  {question.extractedText || question.content}
-                </p>
-              </div>
+              {/* Removed AI-Extracted Question Text section per request */}
             </div>
           </CardContent>
         </Card>
