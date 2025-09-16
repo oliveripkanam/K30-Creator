@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
 import { MechanicsRadarChart } from './RadarChart';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface MistakeType {
   id: string;
@@ -37,6 +38,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: DashboardProps) {
+  const [mistakeFilter, setMistakeFilter] = React.useState<'all' | 'subject' | 'syllabus' | 'year'>('all');
   const streakGoal = 30;
   const nextMilestone = Math.ceil(user.questionsDecoded / 10) * 10;
   const progressToNextMilestone = ((user.questionsDecoded % 10) / 10) * 100;
@@ -236,12 +238,15 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: Da
         {/* Common Mistakes Section */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-              <span>Top 3 Common Mistakes</span>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center space-x-2">
+                <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                </svg>
+                <span>Top 3 Common Mistakes</span>
+              </CardTitle>
+              <div className="hidden" />
+            </div>
             <CardDescription>Areas that need your attention</CardDescription>
           </CardHeader>
           <CardContent>

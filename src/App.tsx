@@ -614,13 +614,16 @@ export default function App() {
   };
 
   // Fetch top mistakes for dashboard (aggregated across duplicate rows)
-  const refreshTopMistakes = async (userId: string) => {
+  const refreshTopMistakes = async (userId: string, filters?: { subject?: string; syllabus?: string; year?: string }) => {
     try {
-      const { data: rows } = await supabase
+      let q = supabase
         .from('mistakes')
-        .select('category, description, count, last_occurred')
-        .eq('user_id', userId)
-        .limit(1000);
+        .select('category, description, count, last_occurred, subject, syllabus, year')
+        .eq('user_id', userId);
+      if (filters?.subject) q = q.eq('subject', filters.subject);
+      if (filters?.syllabus) q = q.eq('syllabus', filters.syllabus);
+      if (filters?.year) q = q.eq('year', filters.year);
+      const { data: rows } = await q.limit(1000);
       const aggregate = new Map<string, { id: string; category: string; description: string; count: number; lastOccurred: Date; examples: string[] }>();
       (rows || []).forEach((r: any) => {
         const key = `${r.category}|||${r.description}`;
@@ -676,6 +679,23 @@ export default function App() {
     const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
     const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
 
+    // helper to normalize year/level labels across regions
+    const normalizeYear = (raw: string): string => {
+      const s = (raw || '').trim().toLowerCase();
+      const mYear = s.match(/year\s*(\d{1,2})/);
+      if (mYear) return `Year ${parseInt(mYear[1], 10)}`;
+      const mGrade = s.match(/grade\s*(\d{1,2})/);
+      if (mGrade) return `Year ${parseInt(mGrade[1], 10)}`; // treat grade == year
+      const mForm = s.match(/form\s*(\d{1,2})/);
+      if (mForm) return `Year ${parseInt(mForm[1], 10) + 6}`; // Form 1 ≈ Year 7
+      const mKs = s.match(/ks\s*(\d+)/);
+      if (mKs) return `KS${mKs[1]}`;
+      if (/a\s*-?level|alevel/.test(s)) return 'A-Level';
+      if (/gcse/.test(s)) return 'GCSE';
+      if (/ib\s*(hl|sl)/.test(s)) return `IB ${s.includes('hl') ? 'HL' : 'SL'}`;
+      return raw || 'General';
+    };
+
     for (const entry of answerLog) {
       const userLabel = typeof entry.userAnswer === 'number' ? String.fromCharCode(65 + entry.userAnswer) : null;
       const correctLabel = typeof entry.correctAnswer === 'number' ? String.fromCharCode(65 + entry.correctAnswer) : null;
@@ -703,8 +723,10 @@ export default function App() {
       // Record a mistake row only when incorrect. Category from subject/level if present
       if (isCorrect === false && user) {
         const subject = (currentQuestion as any)?.subject || '';
+        const syllabus = (currentQuestion as any)?.syllabus || '';
         const level = (currentQuestion as any)?.level || '';
-        const category = subject || level || 'General';
+        const yearNorm = normalizeYear(level);
+        const category = subject || yearNorm || 'General';
         const description = (entry.explanation || entry.question || '').toString().slice(0, 180) || 'Incorrect step';
         try {
           if (!hasSessionNow) {
@@ -712,12 +734,12 @@ export default function App() {
             await fetch(`${envUrl}/rest/v1/mistakes`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': envAnon, 'Prefer': 'return=minimal' } as any,
-              body: JSON.stringify({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString() }),
+              body: JSON.stringify({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString(), subject, syllabus, year: yearNorm }),
             });
           } else {
             await supabase
               .from('mistakes')
-              .insert({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString() });
+              .insert({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString(), subject, syllabus, year: yearNorm });
           }
         } catch {}
       }
