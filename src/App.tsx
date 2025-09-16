@@ -298,8 +298,13 @@ export default function App() {
     });
 
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      console.log('[persist] start', { hasSession: !!sess?.session, userId: user.id });
+      // Guard getSession with timeout for visibility
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve({ data: { session: null } }), 2500));
+      const sessRes: any = (await Promise.race([sessionPromise, timeoutPromise])) as any;
+      const hasSessionNow = !!sessRes?.data?.session;
+      console.log('[persist] start', { hasSession: hasSessionNow, userId: user.id });
+      console.log('[persist] inserting into questions...');
       const { data: inserted, error } = await supabase
         .from('questions')
         .insert({
@@ -319,9 +324,11 @@ export default function App() {
         console.error('[persist] insert questions failed', { error });
         throw error;
       }
+      console.log('[persist] questions insert ok', inserted);
       const questionId = inserted?.id;
       if (questionId) {
         const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
+        console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
         const { error: stepsErr } = await supabase.from('mcq_steps').insert(
           mcqs.map((m, i) => ({
             question_id: questionId,
