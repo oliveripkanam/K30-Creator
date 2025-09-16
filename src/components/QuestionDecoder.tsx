@@ -95,127 +95,19 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   const strengthenHint = (mcq: MCQ, q: Question): string => {
     const fromCalc = deriveHintFromCalc(mcq);
     if (fromCalc) return fromCalc;
-
-    // Pattern-based, subject-agnostic templates with light token insertion
-    const combined = `${(q.extractedText || q.content)} ${mcq.question}`;
-    const lower = combined.toLowerCase();
-    const symbols = Array.from(new Set((combined.match(/T|μ|g|α|θ|v|u|a|t|m\b|k\b|q\b|pH|sin|cos|tan/gi) || []))).slice(0, 3);
-    const symStr = symbols.join(', ');
-    type Pattern = { name: string; score: number; variants: string[] };
-    const patterns: Pattern[] = [
-      {
-        name: 'components',
-        score: (lower.match(/incline|angle|resolve|component|horizontal|vertical|tension|friction|coefficient|μ/g) || []).length,
-        variants: [
-          'Resolve along the reference direction; include all components (e.g., weight parts and friction).',
-          `Resolve forces along the path; include ${symStr || 'relevant terms'} before applying the relation.`,
-          'Project quantities parallel/perpendicular to the plane, then apply the relation.'
-        ]
-      },
-      {
-        name: 'newton',
-        score: (lower.match(/force|newton|mass|accel|ma\b|tension|normal|friction|net/g) || []).length,
-        variants: [
-          'Apply F = ma along the motion direction; balance all terms then solve.',
-          `Write F = ma with ${symStr || 'known terms'} and isolate the target.`,
-          'Set up the net force equation in the chosen direction, then substitute.'
-        ]
-      },
-      {
-        name: 'kinematics',
-        score: (lower.match(/suvat|velocity|displacement|projectile|u\b|v\b|a\b|t\b/g) || []).length,
-        variants: [
-          'Pick the kinematic relation that contains your knowns and the target; then substitute.',
-          'Use the appropriate SUVAT equation and evaluate with the given values.',
-          `Choose the relation with ${symStr || 'the variables given'} and compute the result.`
-        ]
-      },
-      {
-        name: 'energy',
-        score: (lower.match(/energy|work|power|spring|ke|pe|conserve|conservation/g) || []).length,
-        variants: [
-          'Use energy balance (initial = final ± losses) with the relevant KE/PE/spring terms.',
-          'Write the energy conservation equation and substitute given values.',
-          'Balance energy terms then compute the unknown.'
-        ]
-      },
-      {
-        name: 'momentum',
-        score: (lower.match(/momentum|impulse|collision|restitution|elastic|inelastic/g) || []).length,
-        variants: [
-          'Apply momentum conservation (and restitution if given) along the line of motion.',
-          'Write total momentum before = after and solve for the unknown.',
-          'Use impulse/momentum relation across the interaction interval.'
-        ]
-      },
-      {
-        name: 'trig',
-        score: (lower.match(/sin|cos|tan|triangle|ratio|angle|degrees/g) || []).length,
-        variants: [
-          'Use the trig definition/inverse that matches the given ratio; then evaluate.',
-          'Relate the ratio to the angle using sin/cos/tan as appropriate.',
-          'Choose the trig relation with your known sides/ratio and compute the angle.'
-        ]
-      },
-      {
-        name: 'calculus',
-        score: (lower.match(/differentiat|derivative|rate of change|integrat|area under|accumulate/g) || []).length,
-        variants: [
-          'Apply the relevant calculus step (differentiate/integrate) and evaluate with limits/values.',
-          'Form the derivative/integral that produces the target, then substitute the given values.',
-          'Translate the rate/area wording into a derivative/integral and compute.'
-        ]
-      },
-      {
-        name: 'graphs',
-        score: (lower.match(/graph|table|axis|curve|plot|reading/g) || []).length,
-        variants: [
-          'Read the required quantity from the axes/labels, then apply the nearest relation.',
-          'Extract the value from the graph/table and substitute into the governing equation.',
-          'Use the plotted relationship to pick the needed value, then compute.'
-        ]
-      },
-      {
-        name: 'ratio-balance',
-        score: (lower.match(/ratio|proportion|balance|mole|molar|stoich|concentration|ph/g) || []).length,
-        variants: [
-          'Write the relation (balance/ratio/definition) connecting the given amounts to the target, then substitute.',
-          'Set up the proportional/balance equation with the provided quantities and solve.',
-          'Use the definition/ratio that links given values to the unknown and evaluate.'
-        ]
-      }
-    ];
-
     const fromQ = deriveHintFromQuestion(mcq, q);
-    const fromOpts = deriveHintFromOptions(mcq);
     if (fromQ) return fromQ;
+    const fromOpts = deriveHintFromOptions(mcq);
     if (fromOpts) return fromOpts;
-
-    const best = patterns.sort((a, b) => b.score - a.score)[0];
-    if (best && best.score > 0) {
-      const base = `${mcq.question}|${mcq.step}|${q.content}`;
-      let h = 5381; for (let i = 0; i < base.length; i++) h = ((h << 5) + h) + base.charCodeAt(i);
-      const idx = Math.abs(h) % best.variants.length;
-      return best.variants[idx].slice(0, 200);
-    }
-
     return 'Underline what is asked, list knowns, then choose the relation that links them.';
   };
 
   const improveHints = (mcqs: MCQ[], q: Question): MCQ[] => {
-    const seen = new Set<string>();
     return mcqs.map((m) => {
-      let hintText = m.hint;
-      if (isWeakHint(hintText)) hintText = strengthenHint(m, q);
-      let candidate = String(hintText || '').trim();
-      if (seen.has(candidate)) {
-        const alt = candidate.replace(/\.$/, '');
-        let n = 1;
-        while (seen.has(`${alt} (${n})`) && n < 4) n++;
-        candidate = `${alt} (${n})`;
+      if (isWeakHint(m.hint)) {
+        return { ...m, hint: strengthenHint(m, q) };
       }
-      seen.add(candidate);
-      return { ...m, hint: candidate };
+      return m;
     });
   };
 
@@ -282,28 +174,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             return [];
           }
         };
-        // Downscale/compress raw image uploads to reduce payload (to ~1024px, JPEG q=0.6)
-        const compressImageBase64 = async (base64: string, mime: string): Promise<string> => {
-          try {
-            const img = new Image();
-            img.src = `data:${mime};base64,${base64}`;
-            await new Promise((resolve, reject) => { img.onload = resolve as any; img.onerror = reject as any; });
-            const maxW = 1024;
-            const scale = Math.min(1, maxW / (img.width || maxW));
-            const w = Math.max(1, Math.floor((img.width || maxW) * scale));
-            const h = Math.max(1, Math.floor((img.height || maxW) * scale));
-            const canvas = document.createElement('canvas');
-            canvas.width = w; canvas.height = h;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return base64;
-            ctx.drawImage(img, 0, 0, w, h);
-            const out = canvas.toDataURL('image/jpeg', 0.6);
-            const idx = out.indexOf(',');
-            return idx >= 0 ? out.slice(idx + 1) : out;
-          } catch {
-            return base64;
-          }
-        };
         const extractDocxPlainText = async (base64: string): Promise<string> => {
           try {
             const mammoth: any = await import('mammoth');
@@ -320,13 +190,12 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         };
 
         // Build single-call decode payload with optional text and images[]
-        let images: Array<{ base64: string; mimeType: string }> = [];
+        const images: Array<{ base64: string; mimeType: string }> = [];
         let textForDecode = question.type === 'text' ? (question.extractedText || question.content) : (question.extractedText || '');
         if (question.fileData?.base64 && question.fileData?.mimeType) {
           const mime = question.fileData.mimeType.toLowerCase();
           if (mime.startsWith('image/')) {
-            const b64 = await compressImageBase64(question.fileData.base64, question.fileData.mimeType);
-            images.push({ base64: b64, mimeType: 'image/jpeg' });
+            images.push({ base64: question.fileData.base64, mimeType: question.fileData.mimeType });
           } else if (mime === 'application/pdf' || question.fileData.name.toLowerCase().endsWith('.pdf')) {
             const imgs = await renderPdfFirstTwoPagesToImages(question.fileData.base64);
             for (const b64 of imgs) images.push({ base64: b64, mimeType: 'image/jpeg' });
@@ -334,11 +203,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             const rawText = await extractDocxPlainText(question.fileData.base64);
             if (rawText) textForDecode = rawText;
           }
-        }
-        // When images are present, cap text to keep request small and avoid timeouts; prefer first image to reduce payload
-        if (images.length > 0) {
-          if (textForDecode.length > 4000) textForDecode = textForDecode.slice(0, 4000);
-          if (images.length > 1 && textForDecode.length > 2500) images = images.slice(0, 1);
         }
         const payload: any = {
           text: textForDecode,
@@ -369,19 +233,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
           if (Array.isArray(data.mcqs) && data.solution) {
-            // If the model returned nothing, use local generation rather than only filler
-            const originalCount = Array.isArray(data.mcqs) ? data.mcqs.length : 0;
-            if (originalCount === 0) {
-              const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
-              const improved = improveHints(generatedMCQs, question);
-              if (!cancelled) {
-                setProgress(100);
-                setIsComplete(true);
-                onDecoded(improved.slice(0, Math.min(8, question.marks)), solution);
-              }
-              return;
-            }
-
             // Enforce MCQ count equals marks (no placeholder wording)
             let mcqsOut = Array.isArray(data.mcqs) ? data.mcqs.slice(0) : [];
             const need = Math.max(0, Math.min(8, question.marks) - mcqsOut.length);
@@ -391,7 +242,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 const stepNum = base + i + 1;
                 mcqsOut.push({
                   id: `client-fill-${Date.now()}-${i}`,
-                  question: `Add a missing step ${stepNum}: choose the next concrete action toward the solution.`,
+                  question: `Add a missing step: choose the next concrete action toward the solution.`,
                   options: [
                     'State the relevant formula/law',
                     'Substitute given values',
@@ -420,10 +271,19 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             // Improve weak/missing hints for all steps
             mcqsOut = improveHints(mcqsOut, question);
 
+            // Deduplicate by question+options+answer and renumber steps sequentially
+            const unique = new Map<string, typeof mcqsOut[number]>();
+            for (const m of mcqsOut) {
+              const key = `${String(m.question || '').trim().toLowerCase()}|${(m.options || []).join('||')}|${m.correctAnswer}`;
+              if (!unique.has(key)) unique.set(key, m);
+            }
+            mcqsOut = Array.from(unique.values());
+            mcqsOut = mcqsOut.slice(0, Math.min(8, question.marks)).map((m, idx) => ({ ...m, step: idx + 1 }));
+
             if (!cancelled) {
               setProgress(100);
               setIsComplete(true);
-              onDecoded(mcqsOut.slice(0, Math.min(8, question.marks)), transformedSolution);
+              onDecoded(mcqsOut, transformedSolution);
             }
             return;
           }
@@ -445,7 +305,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         generatedMCQs = improveHints(generatedMCQs, question);
         setProgress(100);
         setIsComplete(true);
-          onDecoded(generatedMCQs, solution);
+        onDecoded(generatedMCQs, solution);
       }
     };
 
