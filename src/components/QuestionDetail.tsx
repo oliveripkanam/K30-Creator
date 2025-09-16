@@ -113,7 +113,26 @@ export function QuestionDetail({ questionId, onBack }: DetailProps) {
                       {s.user_answer && <Badge variant="outline">You: {s.user_answer}</Badge>}
                     </div>
                   </div>
-                  <p className="text-sm mb-1">{s.prompt}</p>
+                  <p className="text-sm mb-2">{s.prompt}</p>
+                  <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {Array.isArray(s.choices) && (s.choices as any[]).map((c: any, idx: number) => {
+                      const label = (c?.label ?? String.fromCharCode(65 + idx)).toString();
+                      const text = (c?.text ?? c ?? '').toString();
+                      const isCorrect = String(s.correct_label || '').toUpperCase() === label.toUpperCase();
+                      const isUser = String(s.user_answer || '').toUpperCase() === label.toUpperCase();
+                      const cls = isCorrect
+                        ? 'border-green-300 bg-green-50'
+                        : isUser
+                          ? 'border-blue-300 bg-blue-50'
+                          : 'border-gray-200 bg-white';
+                      return (
+                        <div key={idx} className={`text-sm border rounded p-2 flex items-start space-x-2 ${cls}`}>
+                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-medium ${isCorrect ? 'bg-green-600 text-white' : isUser ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}>{label}</span>
+                          <span className="flex-1">{text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </CardContent>
