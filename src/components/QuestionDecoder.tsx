@@ -95,19 +95,127 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   const strengthenHint = (mcq: MCQ, q: Question): string => {
     const fromCalc = deriveHintFromCalc(mcq);
     if (fromCalc) return fromCalc;
+
+    // Pattern-based, subject-agnostic templates with light token insertion
+    const combined = `${(q.extractedText || q.content)} ${mcq.question}`;
+    const lower = combined.toLowerCase();
+    const symbols = Array.from(new Set((combined.match(/T|μ|g|α|θ|v|u|a|t|m\b|k\b|q\b|pH|sin|cos|tan/gi) || []))).slice(0, 3);
+    const symStr = symbols.join(', ');
+    type Pattern = { name: string; score: number; variants: string[] };
+    const patterns: Pattern[] = [
+      {
+        name: 'components',
+        score: (lower.match(/incline|angle|resolve|component|horizontal|vertical|tension|friction|coefficient|μ/g) || []).length,
+        variants: [
+          'Resolve along the reference direction; include all components (e.g., weight parts and friction).',
+          `Resolve forces along the path; include ${symStr || 'relevant terms'} before applying the relation.`,
+          'Project quantities parallel/perpendicular to the plane, then apply the relation.'
+        ]
+      },
+      {
+        name: 'newton',
+        score: (lower.match(/force|newton|mass|accel|ma\b|tension|normal|friction|net/g) || []).length,
+        variants: [
+          'Apply F = ma along the motion direction; balance all terms then solve.',
+          `Write F = ma with ${symStr || 'known terms'} and isolate the target.`,
+          'Set up the net force equation in the chosen direction, then substitute.'
+        ]
+      },
+      {
+        name: 'kinematics',
+        score: (lower.match(/suvat|velocity|displacement|projectile|u\b|v\b|a\b|t\b/g) || []).length,
+        variants: [
+          'Pick the kinematic relation that contains your knowns and the target; then substitute.',
+          'Use the appropriate SUVAT equation and evaluate with the given values.',
+          `Choose the relation with ${symStr || 'the variables given'} and compute the result.`
+        ]
+      },
+      {
+        name: 'energy',
+        score: (lower.match(/energy|work|power|spring|ke|pe|conserve|conservation/g) || []).length,
+        variants: [
+          'Use energy balance (initial = final ± losses) with the relevant KE/PE/spring terms.',
+          'Write the energy conservation equation and substitute given values.',
+          'Balance energy terms then compute the unknown.'
+        ]
+      },
+      {
+        name: 'momentum',
+        score: (lower.match(/momentum|impulse|collision|restitution|elastic|inelastic/g) || []).length,
+        variants: [
+          'Apply momentum conservation (and restitution if given) along the line of motion.',
+          'Write total momentum before = after and solve for the unknown.',
+          'Use impulse/momentum relation across the interaction interval.'
+        ]
+      },
+      {
+        name: 'trig',
+        score: (lower.match(/sin|cos|tan|triangle|ratio|angle|degrees/g) || []).length,
+        variants: [
+          'Use the trig definition/inverse that matches the given ratio; then evaluate.',
+          'Relate the ratio to the angle using sin/cos/tan as appropriate.',
+          'Choose the trig relation with your known sides/ratio and compute the angle.'
+        ]
+      },
+      {
+        name: 'calculus',
+        score: (lower.match(/differentiat|derivative|rate of change|integrat|area under|accumulate/g) || []).length,
+        variants: [
+          'Apply the relevant calculus step (differentiate/integrate) and evaluate with limits/values.',
+          'Form the derivative/integral that produces the target, then substitute the given values.',
+          'Translate the rate/area wording into a derivative/integral and compute.'
+        ]
+      },
+      {
+        name: 'graphs',
+        score: (lower.match(/graph|table|axis|curve|plot|reading/g) || []).length,
+        variants: [
+          'Read the required quantity from the axes/labels, then apply the nearest relation.',
+          'Extract the value from the graph/table and substitute into the governing equation.',
+          'Use the plotted relationship to pick the needed value, then compute.'
+        ]
+      },
+      {
+        name: 'ratio-balance',
+        score: (lower.match(/ratio|proportion|balance|mole|molar|stoich|concentration|ph/g) || []).length,
+        variants: [
+          'Write the relation (balance/ratio/definition) connecting the given amounts to the target, then substitute.',
+          'Set up the proportional/balance equation with the provided quantities and solve.',
+          'Use the definition/ratio that links given values to the unknown and evaluate.'
+        ]
+      }
+    ];
+
     const fromQ = deriveHintFromQuestion(mcq, q);
-    if (fromQ) return fromQ;
     const fromOpts = deriveHintFromOptions(mcq);
+    if (fromQ) return fromQ;
     if (fromOpts) return fromOpts;
+
+    const best = patterns.sort((a, b) => b.score - a.score)[0];
+    if (best && best.score > 0) {
+      const base = `${mcq.question}|${mcq.step}|${q.content}`;
+      let h = 5381; for (let i = 0; i < base.length; i++) h = ((h << 5) + h) + base.charCodeAt(i);
+      const idx = Math.abs(h) % best.variants.length;
+      return best.variants[idx].slice(0, 200);
+    }
+
     return 'Underline what is asked, list knowns, then choose the relation that links them.';
   };
 
   const improveHints = (mcqs: MCQ[], q: Question): MCQ[] => {
+    const seen = new Set<string>();
     return mcqs.map((m) => {
-      if (isWeakHint(m.hint)) {
-        return { ...m, hint: strengthenHint(m, q) };
+      let hintText = m.hint;
+      if (isWeakHint(hintText)) hintText = strengthenHint(m, q);
+      let candidate = String(hintText || '').trim();
+      if (seen.has(candidate)) {
+        const alt = candidate.replace(/\.$/, '');
+        let n = 1;
+        while (seen.has(`${alt} (${n})`) && n < 4) n++;
+        candidate = `${alt} (${n})`;
       }
-      return m;
+      seen.add(candidate);
+      return { ...m, hint: candidate };
     });
   };
 
@@ -296,7 +404,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         generatedMCQs = improveHints(generatedMCQs, question);
         setProgress(100);
         setIsComplete(true);
-        onDecoded(generatedMCQs, solution);
+          onDecoded(generatedMCQs, solution);
       }
     };
 
