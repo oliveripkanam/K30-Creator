@@ -94,6 +94,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const autoSaveTriggeredRef = useRef<boolean>(false);
   const [isDashLoading, setIsDashLoading] = useState<boolean>(false);
+  const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(false);
   // Removed session hydration on refresh by request
 
   // Mock user authentication (fallback)
@@ -174,11 +175,13 @@ export default function App() {
     });
   };
 
-  // On auth state change, load/create profile and set user (no refresh hydration)
+  // On auth state change, load/create profile and set user (with small post-OAuth hydration gate)
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
       const authUser = session?.user;
       if (!authUser) {
+        // Avoid bouncing to login during the brief OAuth hash-processing window
+        if (isAuthHydrating && (event === 'INITIAL_SESSION' || event === 'SIGNED_OUT')) return;
         setUser(null);
         setCurrentState('login');
         return;
@@ -216,11 +219,36 @@ export default function App() {
       };
       setUser(hydrated);
       setCurrentState('dashboard');
+      // Clean the URL hash after successful sign-in so it doesn't linger
+      try {
+        if (window.location.hash.includes('access_token')) {
+          window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+        }
+      } catch {}
       // Fetch DB-backed totals & streak (non-blocking)
       void refreshDashboardMetrics(hydrated.id);
-      void refreshTopMistakes(hydrated.id);
     });
     return () => { sub.subscription.unsubscribe(); };
+  }, [isAuthHydrating]);
+
+  // Minimal hydration on initial load or OAuth callback redirect
+  useEffect(() => {
+    let cancelled = false;
+    const isOAuthReturn = typeof window !== 'undefined' && window.location.hash.includes('access_token');
+    if (!isOAuthReturn) return;
+    setIsAuthHydrating(true);
+    const timer = setTimeout(() => { if (!cancelled) setIsAuthHydrating(false); }, 3500);
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (data.session?.user) {
+          // onAuthStateChange will handle the rest; just ensure hash is cleaned fast
+          try { window.history.replaceState({}, document.title, window.location.pathname + window.location.search); } catch {}
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; clearTimeout(timer); };
   }, []);
 
   const handleQuestionSubmit = (question: Question) => {
@@ -270,8 +298,8 @@ export default function App() {
 
   const saveCompletion = async (navigateAfter: boolean) => {
     if (!(user && currentQuestion && solutionSummary && questionStartTime)) return;
-    const timeSpent = Math.round((new Date().getTime() - questionStartTime.getTime()) / (1000 * 60));
-    const tokensEarned = calculateTokens(currentQuestion.marks, mcqs.length, timeSpent);
+      const timeSpent = Math.round((new Date().getTime() - questionStartTime.getTime()) / (1000 * 60));
+      const tokensEarned = calculateTokens(currentQuestion.marks, mcqs.length, timeSpent);
 
     // If already persisted, just navigate if requested
     if (hasPersisted) {
@@ -289,26 +317,26 @@ export default function App() {
 
     console.log('[persist] auto-save starting');
     setIsSaving(true);
-
-    const completedQuestion: CompletedQuestion = {
-      ...currentQuestion,
-      completedAt: new Date(),
-      tokensEarned,
-      mcqsGenerated: mcqs.length,
-      timeSpent,
-      solutionSummary
-    };
-
-    setCompletedQuestions(prev => [completedQuestion, ...prev]);
-
-    setUser({
-      ...user,
-      questionsDecoded: user.questionsDecoded + 1,
+      
+      const completedQuestion: CompletedQuestion = {
+        ...currentQuestion,
+        completedAt: new Date(),
+        tokensEarned,
+        mcqsGenerated: mcqs.length,
+        timeSpent,
+        solutionSummary
+      };
+      
+      setCompletedQuestions(prev => [completedQuestion, ...prev]);
+      
+      setUser({
+        ...user,
+        questionsDecoded: user.questionsDecoded + 1,
       // Do not locally bump streak; server will compute real streak
       currentStreak: user.currentStreak,
-      totalMarks: user.totalMarks + currentQuestion.marks,
-      tokens: user.tokens + tokensEarned
-    });
+        totalMarks: user.totalMarks + currentQuestion.marks,
+        tokens: user.tokens + tokensEarned
+      });
 
     try {
       // Guard getSession with timeout for visibility
