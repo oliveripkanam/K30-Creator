@@ -302,13 +302,13 @@ export default function App() {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ header, originalText, subject: (currentQuestion as any)?.subject, syllabus: (currentQuestion as any)?.syllabus, level: (currentQuestion as any)?.level, items })
         });
-        if (res.status === 404) {
+        if (!res.ok) {
           // Netlify fallback path
           res = await fetch('/.netlify/functions/ai-refine-hints', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ header, originalText, subject: (currentQuestion as any)?.subject, syllabus: (currentQuestion as any)?.syllabus, level: (currentQuestion as any)?.level, items })
           });
-          if (res.status === 404) {
+          if (!res.ok) {
             // Fallback to function file name path
             res = await fetch('/.netlify/functions/decode-hints', {
               method: 'POST', headers: { 'content-type': 'application/json' },
