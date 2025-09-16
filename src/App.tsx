@@ -449,6 +449,23 @@ export default function App() {
       console.log('[persist] questions insert ok', { id: insertedId });
       const questionId = insertedId;
       if (questionId) {
+        // Broadcast an optimistic history item so UI updates instantly
+        try {
+          const optimisticItem = {
+            id: questionId,
+            content: currentQuestion.content,
+            extractedText: currentQuestion.extractedText || undefined,
+            marks: currentQuestion.marks,
+            type: currentQuestion.type,
+            timestamp: new Date(),
+            completedAt: new Date(),
+            tokensEarned,
+            mcqsGenerated: mcqs.length,
+            timeSpent,
+            solutionSummary: solutionSummary,
+          } as any;
+          window.dispatchEvent(new CustomEvent('k30:history:optimistic', { detail: optimisticItem }));
+        } catch {}
         const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
         console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
         if (!hasSessionNow) {

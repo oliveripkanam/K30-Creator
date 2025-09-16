@@ -118,10 +118,36 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
     };
     fetchHistory();
     const onRefresh = () => fetchHistory();
+    const onOptimistic = (e: Event) => {
+      try {
+        const detail = (e as CustomEvent).detail as any;
+        if (!detail) return;
+        setCompletedQuestions(prev => {
+          // Avoid duplicates by id
+          if (prev.some(p => (p as any).id === detail.id)) return prev;
+          const mapped: CompletedQuestion = {
+            id: detail.id,
+            content: detail.content || '',
+            extractedText: detail.extractedText || undefined,
+            marks: detail.marks || 0,
+            type: detail.type || 'text',
+            timestamp: new Date(detail.completedAt || new Date()),
+            completedAt: new Date(detail.completedAt || new Date()),
+            tokensEarned: detail.tokensEarned || 0,
+            mcqsGenerated: detail.mcqsGenerated || 0,
+            timeSpent: detail.timeSpent || 0,
+            solutionSummary: detail.solutionSummary || { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] },
+          };
+          return [mapped, ...prev];
+        });
+      } catch {}
+    };
     window.addEventListener('k30:history:refresh', onRefresh);
+    window.addEventListener('k30:history:optimistic', onOptimistic as any);
     return () => {
       aborted = true;
       window.removeEventListener('k30:history:refresh', onRefresh);
+      window.removeEventListener('k30:history:optimistic', onOptimistic as any);
     };
   }, [userId]);
   const [searchTerm, setSearchTerm] = useState('');
