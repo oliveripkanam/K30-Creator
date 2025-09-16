@@ -35,10 +35,12 @@ interface DashboardProps {
   onStartDecoding: () => void;
   onViewHistory: () => void;
   onLogout: () => void;
+  onFilterMistakes?: (filters?: { subject?: string; syllabus?: string; year?: string }) => void;
 }
 
-export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: DashboardProps) {
-  const [mistakeFilter, setMistakeFilter] = React.useState<'all' | 'subject' | 'syllabus' | 'year'>('all');
+export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onFilterMistakes }: DashboardProps) {
+  const [mistakeFilterMode, setMistakeFilterMode] = React.useState<'all' | 'subject' | 'syllabus' | 'year'>('all');
+  const [mistakeFilterValue, setMistakeFilterValue] = React.useState('');
   const streakGoal = 30;
   const nextMilestone = Math.ceil(user.questionsDecoded / 10) * 10;
   const progressToNextMilestone = ((user.questionsDecoded % 10) / 10) * 100;
@@ -245,7 +247,17 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: Da
                 </svg>
                 <span>Top 3 Common Mistakes</span>
               </CardTitle>
-              <div className="hidden" />
+              <div className="flex items-center space-x-2">
+                <select className="border rounded px-2 py-1 text-sm" value={mistakeFilterMode} onChange={(e) => setMistakeFilterMode(e.target.value as any)}>
+                  <option value="all">All</option>
+                  <option value="subject">By Subject</option>
+                  <option value="syllabus">By Syllabus</option>
+                  <option value="year">By Year</option>
+                </select>
+                {mistakeFilterMode !== 'all' && (
+                  <input className="border rounded px-2 py-1 text-sm" placeholder={mistakeFilterMode === 'subject' ? 'e.g., Chemistry' : mistakeFilterMode === 'syllabus' ? 'e.g., A-Level, IB' : 'e.g., Year 8'} value={mistakeFilterValue} onChange={(e) => setMistakeFilterValue(e.target.value)} />
+                )}
+              </div>
             </div>
             <CardDescription>Areas that need your attention</CardDescription>
           </CardHeader>
