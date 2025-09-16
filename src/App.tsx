@@ -3,8 +3,6 @@ import { LoginPage } from './components/LoginPage';
 import { supabase } from './lib/supabase';
 import { Dashboard } from './components/Dashboard';
 import { QuestionInput } from './components/QuestionInput';
-import { TextExtractor } from './components/TextExtractor';
-import { TextVerification } from './components/TextVerification';
 import { QuestionDecoder } from './components/QuestionDecoder';
 import { MCQInterface } from './components/MCQInterface';
 import { SolutionSummaryComponent } from './components/SolutionSummary';
@@ -77,7 +75,7 @@ interface SolutionSummary {
   keyFormulas: string[];
 }
 
-type AppState = 'login' | 'dashboard' | 'input' | 'extractor' | 'verify' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review';
+type AppState = 'login' | 'dashboard' | 'input' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review';
 const [selectedHistoryId, setSelectedHistoryId] = [undefined as any];
 
 export default function App() {
@@ -265,30 +263,10 @@ export default function App() {
   }, []);
 
   const handleQuestionSubmit = (question: Question) => {
-    setCurrentQuestion(question);
-    setQuestionStartTime(new Date());
-    // For text questions, skip extraction and go directly to decoder
-    if (question.type === 'text') {
-      const updatedQuestion = { ...question, extractedText: question.content };
-      setCurrentQuestion(updatedQuestion);
-      setCurrentState('decoder');
-    } else {
-      setCurrentState('extractor');
-    }
-  };
-
-  const handleTextExtracted = (updatedQuestion: Question) => {
+    // Single-step: go straight to decoder; no OCR/augment/verify
+    const updatedQuestion = question.type === 'text' ? { ...question, extractedText: question.content } : question;
     setCurrentQuestion(updatedQuestion);
-    // For photos and files, go to verification step before decoding
-    if (updatedQuestion.type !== 'text') {
-      setCurrentState('verify');
-    } else {
-      setCurrentState('decoder');
-    }
-  };
-
-  const handleTextVerified = (verifiedQuestion: Question) => {
-    setCurrentQuestion(verifiedQuestion);
+    setQuestionStartTime(new Date());
     setCurrentState('decoder');
   };
 
@@ -836,28 +814,12 @@ export default function App() {
             onBack={() => setCurrentState('dashboard')}
           />
         );
-      case 'extractor':
-        return (
-          <TextExtractor 
-            question={currentQuestion!}
-            onTextExtracted={handleTextExtracted}
-            onBack={() => setCurrentState('input')}
-          />
-        );
-      case 'verify':
-        return (
-          <TextVerification 
-            question={currentQuestion!}
-            onVerified={handleTextVerified}
-            onBack={() => setCurrentState('extractor')}
-          />
-        );
       case 'decoder':
         return (
           <QuestionDecoder 
             question={currentQuestion!}
             onDecoded={handleQuestionDecoded}
-            onBack={() => currentQuestion?.type === 'text' ? setCurrentState('input') : setCurrentState('verify')}
+            onBack={() => setCurrentState('input')}
           />
         );
       case 'mcq':

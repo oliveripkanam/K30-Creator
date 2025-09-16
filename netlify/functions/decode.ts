@@ -2,7 +2,8 @@
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[] };
-type DecodeRequest = { text: string; marks?: number; imageBase64?: string; imageMimeType?: string; subject?: string; syllabus?: string; level?: string };
+type ImageItem = { base64: string; mimeType: string };
+type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -17,13 +18,12 @@ export default async (req: Request) => {
   const text = (payload.text || '').toString().trim();
   // Allow up to 8 marks to match the UI selector
   const marks = Math.max(1, Math.min(8, Number(payload.marks ?? 3)));
-  const imageBase64 = (payload.imageBase64 || '').trim();
-  const imageMimeType = (payload.imageMimeType || '').trim();
+  const images: ImageItem[] = Array.isArray(payload.images) ? payload.images.filter(it => it && typeof it.base64 === 'string' && typeof it.mimeType === 'string') : [];
   const subject = (payload.subject || '').toString().trim();
   const syllabus = (payload.syllabus || '').toString().trim();
   const level = (payload.level || '').toString().trim();
-  if (!text) return respond(400, { error: "Missing 'text'" });
-  dbg('input summary', { textLen: text.length, marks, hasImage: !!imageBase64, imageMimeType });
+  if (!text && images.length === 0) return respond(400, { error: "Missing 'text' or 'images'" });
+  dbg('input summary', { textLen: text.length, marks, images: images.length });
 
   // Bypass switch for routing checks
   if ((getEnv('DEBUG_BYPASS_AZURE') || '') === '1') {
@@ -75,9 +75,12 @@ export default async (req: Request) => {
 
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
-    // To reduce payload size/timeouts, only attach the image if we lack adequate text context
-    if ((!text || text.length < 80) && imageBase64 && imageMimeType && /^image\//i.test(imageMimeType)) {
-      messageContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
+    // Always include up to 2 images if provided
+    for (let i = 0; i < Math.min(2, images.length); i++) {
+      const img = images[i];
+      if (img && /^image\//i.test(img.mimeType) && typeof img.base64 === 'string' && img.base64.length > 0) {
+        messageContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+      }
     }
 
     const includedImage = messageContent.some((p) => p?.type === 'image_url');

@@ -179,7 +179,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
           <CardHeader>
             <CardTitle>Add Your Question</CardTitle>
             <CardDescription className="text-sm">
-              Choose how you'd like to input your question. For photos and files, you'll be able to review the extracted text before proceeding.
+              Choose how you'd like to input your question. We send text/images directly to AI (no extraction step).
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
@@ -288,7 +288,7 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                         <div>
                           <p className="text-sm text-gray-600">Drag & drop an image here, or click to choose</p>
                           <p className="text-xs text-gray-400">PNG, JPG up to 10MB</p>
-                          <p className="text-xs text-purple-600 mt-1">✨ AI will analyze and extract text from your image</p>
+                          <p className="text-xs text-purple-600 mt-1">✨ AI will read your image directly</p>
                         </div>
                         <Input
                           id="photo-upload"
@@ -344,7 +344,7 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                         <div>
                           <p className="text-sm text-gray-600">Drag & drop a PDF/DOC here, or click to choose</p>
                           <p className="text-xs text-gray-400">PDF, DOC, DOCX up to 10MB</p>
-                          <p className="text-xs text-blue-600 mt-1">✨ AI will analyze and extract text from your document</p>
+                          <p className="text-xs text-blue-600 mt-1">✨ AI will read your document directly (PDF first 2 pages)</p>
                         </div>
                         <Input
                           id="file-upload"
@@ -406,7 +406,7 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                 size="lg"
                 className="px-6 sm:px-8 w-full sm:w-auto"
               >
-                {activeTab === 'text' ? 'Decode Question' : 'Extract & Verify'}
+                {'Decode Question'}
                 <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                 </svg>

@@ -79,12 +79,76 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
     const decode = async () => {
       try {
         console.log('[decoder] POST /api/ai-decode');
-        const payload = {
-          text: question.extractedText || question.content,
+        // Helpers for PDF (first 2 pages) and DOCX (plain text)
+        const renderPdfFirstTwoPagesToImages = async (base64: string): Promise<string[]> => {
+          try {
+            const [{ getDocument, GlobalWorkerOptions }, workerUrl] = await Promise.all([
+              import('pdfjs-dist/build/pdf'),
+              import('pdfjs-dist/build/pdf.worker.min.js?url').then((m: any) => m.default || m)
+            ]);
+            (GlobalWorkerOptions as any).workerSrc = workerUrl;
+            const raw = atob(base64);
+            const len = raw.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) bytes[i] = raw.charCodeAt(i);
+            const pdf = await getDocument({ data: bytes }).promise;
+            const pageCount = Math.min(2, pdf.numPages || 0);
+            const outputs: string[] = [];
+            for (let p = 1; p <= pageCount; p++) {
+              const page = await pdf.getPage(p);
+              const viewport = page.getViewport({ scale: 1.5 });
+              const targetW = 1024;
+              const scale = Math.min(2.0, targetW / viewport.width);
+              const v2 = page.getViewport({ scale });
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.floor(v2.width);
+              canvas.height = Math.floor(v2.height);
+              const ctx = canvas.getContext('2d');
+              if (!ctx) continue;
+              await page.render({ canvasContext: ctx as any, viewport: v2 }).promise;
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+              const idx = dataUrl.indexOf(',');
+              outputs.push(idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl);
+            }
+            return outputs;
+          } catch {
+            return [];
+          }
+        };
+        const extractDocxPlainText = async (base64: string): Promise<string> => {
+          try {
+            const mammoth: any = await import('mammoth/mammoth.browser');
+            // Convert base64 -> ArrayBuffer
+            const binary = atob(base64);
+            const buf = new ArrayBuffer(binary.length);
+            const view = new Uint8Array(buf);
+            for (let i = 0; i < binary.length; i++) view[i] = binary.charCodeAt(i);
+            const { value } = await mammoth.extractRawText({ arrayBuffer: buf });
+            return String(value || '').trim();
+          } catch {
+            return '';
+          }
+        };
+
+        // Build single-call decode payload with optional text and images[]
+        const images: Array<{ base64: string; mimeType: string }> = [];
+        let textForDecode = question.type === 'text' ? (question.extractedText || question.content) : (question.extractedText || '');
+        if (question.fileData?.base64 && question.fileData?.mimeType) {
+          const mime = question.fileData.mimeType.toLowerCase();
+          if (mime.startsWith('image/')) {
+            images.push({ base64: question.fileData.base64, mimeType: question.fileData.mimeType });
+          } else if (mime === 'application/pdf' || question.fileData.name.toLowerCase().endsWith('.pdf')) {
+            const imgs = await renderPdfFirstTwoPagesToImages(question.fileData.base64);
+            for (const b64 of imgs) images.push({ base64: b64, mimeType: 'image/jpeg' });
+          } else if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || mime === 'application/msword' || question.fileData.name.toLowerCase().endsWith('.docx') || question.fileData.name.toLowerCase().endsWith('.doc')) {
+            const rawText = await extractDocxPlainText(question.fileData.base64);
+            if (rawText) textForDecode = rawText;
+          }
+        }
+        const payload: any = {
+          text: textForDecode,
+          images: images.length ? images : undefined,
           marks: Math.min(8, Math.max(1, question.marks)),
-          ...(question.fileData?.base64 && question.fileData?.mimeType
-            ? { imageBase64: question.fileData.base64, imageMimeType: question.fileData.mimeType }
-            : {}),
           subject: question.subject,
           syllabus: question.syllabus,
           level: question.level,
@@ -95,15 +159,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           body: JSON.stringify(payload)
         });
         console.log('[decoder] /api/ai-decode status', res.status);
-        if (res.status === 404) {
-          console.log('[decoder] trying /api/decode');
-          res = await fetch('/api/decode', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          console.log('[decoder] /api/decode status', res.status);
-        }
+        // Keep only primary path and one Netlify fallback
         if (res.status === 404) {
           console.log('[decoder] trying /.netlify/functions/ai-decode');
           res = await fetch('/.netlify/functions/ai-decode', {
@@ -112,15 +168,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             body: JSON.stringify(payload)
           });
           console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
-        }
-        if (res.status === 404) {
-          console.log('[decoder] trying /.netlify/functions/decode');
-          res = await fetch('/.netlify/functions/decode', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          console.log('[decoder] /.netlify/functions/decode status', res.status);
         }
         if (res.ok) {
           const data = await res.json();
