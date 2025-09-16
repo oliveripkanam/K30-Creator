@@ -159,7 +159,12 @@ export default function App() {
 
   // Supabase OAuth
   const handleOAuth = async (provider: 'google' | 'azure' | 'apple') => {
-    await supabase.auth.signInWithOAuth({ provider });
+    await supabase.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
   };
 
   // On auth state change, load/create profile and set user (no refresh hydration)
