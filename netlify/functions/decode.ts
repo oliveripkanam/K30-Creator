@@ -15,8 +15,8 @@ export default async (req: Request) => {
 
   let payload: DecodeRequest; try { payload = await req.json(); } catch { return respond(400, { error: 'Invalid JSON body' }); }
   const text = (payload.text || '').toString().trim();
-  // Allow up to 6 marks to match the UI selector
-  const marks = Math.max(1, Math.min(6, Number(payload.marks ?? 3)));
+  // Allow up to 8 marks to match the UI selector
+  const marks = Math.max(1, Math.min(8, Number(payload.marks ?? 3)));
   const imageBase64 = (payload.imageBase64 || '').trim();
   const imageMimeType = (payload.imageMimeType || '').trim();
   const subject = (payload.subject || '').toString().trim();

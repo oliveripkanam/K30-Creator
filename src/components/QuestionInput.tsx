@@ -379,8 +379,8 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                   onChange={(e) => setMarks(parseInt(e.target.value) || 1)}
                   className="w-24"
                 />
-                <div className="grid grid-cols-3 sm:flex gap-2 sm:gap-1 w-full sm:w-auto">
-                  {[1, 2, 3, 4, 5, 6].map((mark) => (
+                <div className="grid grid-cols-4 sm:flex gap-2 sm:gap-1 w-full sm:w-auto">
+                  {[1, 2, 3, 4, 5, 6, 7, 8].map((mark) => (
                     <Button
                       key={mark}
                       variant={marks === mark ? "default" : "outline"}
