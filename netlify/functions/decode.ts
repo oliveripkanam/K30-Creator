@@ -75,36 +75,64 @@ export default async (req: Request) => {
   // No custom aborts; let Azure/Netlify control timeouts to avoid premature 500s.
 
   try {
-    const messageContent: any[] = [ { type: 'text', text: userText } ];
-    // Always include up to 2 images if provided
+    // Build shared visual+text content
+    const baseContent: any[] = [ { type: 'text', text: userText } ];
     for (let i = 0; i < Math.min(2, images.length); i++) {
       const img = images[i];
       if (img && /^image\//i.test(img.mimeType) && typeof img.base64 === 'string' && img.base64.length > 0) {
-        messageContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+        baseContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
       }
     }
+    const hasImage = baseContent.some((p) => p?.type === 'image_url');
 
-    const includedImage = messageContent.some((p) => p?.type === 'image_url');
-    // Remove explicit token caps; allow service default limits
-    dbg('request summary (primary)', { includedImage, response_format: 'text', parts: messageContent.map(p => p?.type).join(',') });
-    let res = await fetch(url, {
+    // STEP 1: Extract concise structured givens/relations JSON
+    const parseInstruction = `\n\nReturn ONLY JSON with keys: givens (array of short strings), relations (array of short equations/constraints), target (string), constants (array), notes (string). No prose.`;
+    const parseRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
         response_format: { type: 'text' },
         temperature: 0.1,
-        messages: [
-          { role: 'user', content: messageContent }
-        ]
+        messages: [ { role: 'user', content: [ ...baseContent, { type: 'text', text: parseInstruction } ] } ]
       })
     });
-    dbg('response (primary) status', res.status);
+    dbg('step1(parse) status', parseRes.status);
+    let parsedSummary: any = null;
+    if (parseRes.ok) {
+      const pr = await parseRes.json();
+      const c = pr?.choices?.[0]?.message?.content || '';
+      try { parsedSummary = JSON.parse(c); } catch { const m = c.match(/\{[\s\S]*\}/); if (m) { try { parsedSummary = JSON.parse(m[0]); } catch {} } }
+    }
+    if (!parsedSummary) parsedSummary = { givens: [], relations: [], target: '', constants: [], notes: '' };
 
-    if (!res.ok && includedImage) {
+    // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision)
+    const genInstruction = `\n\nUsing the ProblemSummary below, generate EXACTLY ${marks} MCQs that lead the learner step-by-step to the solution. Each mcq must have: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step. Also return a solution object with finalAnswer, unit, workingSteps[], keyFormulas[]. Return ONLY JSON { mcqs: [...], solution: {...} }.`;
+    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 3500)}` }, { type: 'text', text: genInstruction } ];
+    // Also include the original text (trimmed) to preserve context
+    genContent.unshift({ type: 'text', text: (userTextRaw.length > 4000 ? userTextRaw.slice(0, 4000) : userTextRaw) });
+    // Attach images again if any
+    if (hasImage) {
+      for (let i = 0; i < Math.min(2, images.length); i++) {
+        const img = images[i];
+        genContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+      }
+    }
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+      body: JSON.stringify({
+        response_format: { type: 'text' },
+        temperature: 0.1,
+        messages: [ { role: 'user', content: genContent } ]
+      })
+    });
+    dbg('step2(generate) status', res.status);
+
+    if (!res.ok && hasImage) {
       const details = await res.text().catch(() => '');
       try { console.warn('[fn decode] azure image request failed; retrying text-only', res.status, details?.slice(0, 300)); } catch {}
       // Retry without image attachment
-      res = await fetch(url, {
+      const retryRes2 = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
@@ -115,7 +143,11 @@ export default async (req: Request) => {
           ]
         })
       });
-      dbg('response (retry text-only) status', res.status);
+      dbg('response (retry text-only) status', retryRes2.status);
+      if (retryRes2.ok) {
+        // Rebind res for downstream handling
+        (res as any) = retryRes2;
+      }
     }
 
     if (!res.ok) { const details = await res.text(); try { console.error('[fn decode] azure error', res.status, details); } catch {}; return respond(res.status, { error: 'Azure error', details }); }
@@ -344,45 +376,7 @@ export default async (req: Request) => {
     const ensured = (parsed as any) as { mcqs: any[]; solution: any };
     dbg('success parse', { mcqs: ensured?.mcqs?.length, hasSolution: !!ensured?.solution, usage });
 
-    // If fewer MCQs than requested marks, try a lightweight top-up generation
-    if (Array.isArray(ensured.mcqs) && ensured.mcqs.length < marks) {
-      try {
-        const missing = Math.max(0, marks - (parsed as any).mcqs.length);
-        if (missing > 0) {
-          const existingSummary = ((parsed as any).mcqs || [])
-            .map(m => `step ${m.step}: ${String(m.question || '').slice(0, 120)}`)
-            .join('\n');
-          const currentLen = ((parsed as any).mcqs || []).length;
-          const topUpUser = `Problem text (same):\n${text}\n\nWe already have ${currentLen} steps (marks):\n${existingSummary}\n\nGenerate ONLY ${missing} additional MCQs to continue the progression, starting from step ${currentLen + 1} up to step ${marks}.\nEach MCQ must include: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step, calculationStep { formula, substitution, result } optional.\nReturn JSON with a single key 'mcqs' containing ONLY the new items. No solution field.`;
-
-          dbg('top-up request', { missing, startStep: ensured.mcqs.length + 1, target: marks });
-          const topRes = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-            body: JSON.stringify({
-              response_format: { type: 'text' },
-              temperature: 0.1,
-              messages: [
-                { role: 'user', content: [{ type: 'text', text: topUpUser }] }
-              ]
-            })
-          });
-          dbg('top-up status', topRes.status);
-          if (topRes.ok) {
-            const tuData = await topRes.json();
-            const tuChoice = tuData?.choices?.[0];
-            const tuContent: string = tuChoice?.message?.content || '';
-            try {
-              const tuJson = JSON.parse(tuContent) || {};
-              const add = Array.isArray(tuJson.mcqs) ? tuJson.mcqs : [];
-              if (add.length) {
-                ensured.mcqs = [...ensured.mcqs, ...add];
-              }
-            } catch {}
-          }
-        }
-      } catch {}
-    }
+    // Do not top-up here; step2 was instructed to return exactly 'marks'
 
     // Normalize MCQs: fix option shapes, clamp correctAnswer, and replace invalid letter-only options
     const normalized: MCQ[] = [] as any;
@@ -428,7 +422,7 @@ export default async (req: Request) => {
     }
     ensured.mcqs = normalized;
 
-    // Ensure we return exactly 'marks' MCQs by trimming; avoid filler here (UI will enforce count)
+    // Enforce exactly 'marks' MCQs (server-side)
     ensured.mcqs = (ensured.mcqs || []);
     ensured.mcqs = ensured.mcqs.slice(0, marks);
     return respond(200, { ...ensured, usage });
