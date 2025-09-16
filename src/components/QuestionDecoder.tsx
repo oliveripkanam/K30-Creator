@@ -265,7 +265,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 const stepNum = base + i + 1;
                 mcqsOut.push({
                   id: `client-fill-${Date.now()}-${i}`,
-                  question: `Add a missing step: choose the next concrete action toward the solution.`,
+                  question: `Step ${stepNum} — choose the next concrete action toward the solution.`,
                   options: [
                     'State the relevant formula/law',
                     'Substitute given values',
@@ -297,8 +297,13 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             // Deduplicate by question+options+answer and renumber steps sequentially
             const unique = new Map<string, typeof mcqsOut[number]>();
             for (const m of mcqsOut) {
-              const key = `${String(m.question || '').trim().toLowerCase()}|${(m.options || []).join('||')}|${m.correctAnswer}`;
-              if (!unique.has(key)) unique.set(key, m);
+              const isFiller = String(m.id || '').startsWith('client-fill-');
+              if (isFiller) {
+                unique.set(`${m.id}`, m); // keep all fillers distinct
+              } else {
+                const key = `${String(m.question || '').trim().toLowerCase()}|${(m.options || []).join('||')}|${m.correctAnswer}`;
+                if (!unique.has(key)) unique.set(key, m);
+              }
             }
             mcqsOut = Array.from(unique.values());
             mcqsOut = mcqsOut.slice(0, Math.min(8, question.marks)).map((m, idx) => ({ ...m, step: idx + 1 }));
