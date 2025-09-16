@@ -159,14 +159,7 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
                   <p className="text-xs text-blue-800">{originalQuestion.content}</p>
                 </div>
               )}
-              <div>
-                {originalQuestion.type !== 'text' && (
-                  <p className="text-xs text-blue-600 mb-2">AI-Extracted Text:</p>
-                )}
-                <p className="text-sm text-blue-900 leading-relaxed">
-                  {originalQuestion.extractedText || originalQuestion.content}
-                </p>
-              </div>
+              {/* Removed AI-Extracted Text per request */}
             </div>
           </CardContent>
         </Card>

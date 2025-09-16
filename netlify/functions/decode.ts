@@ -428,31 +428,8 @@ export default async (req: Request) => {
     }
     ensured.mcqs = normalized;
 
-    // Ensure we return exactly 'marks' MCQs. If still short, synthesize simple filler items.
+    // Ensure we return exactly 'marks' MCQs by trimming; avoid filler here (UI will enforce count)
     ensured.mcqs = (ensured.mcqs || []);
-    if (ensured.mcqs.length < marks) {
-      try {
-        const baseStep = ensured.mcqs.length + 1;
-        for (let i = 0; i < marks - ensured.mcqs.length; i++) {
-          const stepNum = baseStep + i;
-          ensured.mcqs.push({
-            id: `auto-${Date.now()}-${i}`,
-            question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
-            options: [
-              'State the relevant formula/law',
-              'Substitute given values',
-              'Compute the intermediate result',
-              'None of the above'
-            ],
-            correctAnswer: 0,
-            hint: 'Recall the formula that directly links known values to the target of this step.',
-            explanation: 'Using the correct governing formula at each step is essential before substitution and computation.',
-            step: stepNum,
-            calculationStep: undefined
-          } as any);
-        }
-      } catch {}
-    }
     ensured.mcqs = ensured.mcqs.slice(0, marks);
     return respond(200, { ...ensured, usage });
   } catch (err: any) {

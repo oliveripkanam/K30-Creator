@@ -233,7 +233,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
           if (Array.isArray(data.mcqs) && data.solution) {
-            // Enforce MCQ count equals marks (top-up via simple synthesis if needed)
+            // Enforce MCQ count equals marks (no placeholder wording)
             let mcqsOut = Array.isArray(data.mcqs) ? data.mcqs.slice(0) : [];
             const need = Math.max(0, Math.min(8, question.marks) - mcqsOut.length);
             if (need > 0) {
@@ -242,7 +242,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 const stepNum = base + i + 1;
                 mcqsOut.push({
                   id: `client-fill-${Date.now()}-${i}`,
-                  question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
+                  question: `Add a missing step ${stepNum}: choose the next concrete action toward the solution.`,
                   options: [
                     'State the relevant formula/law',
                     'Substitute given values',
@@ -250,7 +250,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                     'None of the above'
                   ],
                   correctAnswer: 0,
-                  hint: 'Recall the formula that directly links known values to the target of this step.',
+                  hint: 'State the governing relation first (e.g., F=ma, T=mg±ma, v=u+at), then proceed.',
                   explanation: 'Using the correct governing formula at each step is essential before substitution and computation.',
                   step: stepNum,
                   calculationStep: undefined
@@ -544,29 +544,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       calculationStep: template.calculationStep
     }));
 
-    // If we still have fewer MCQs than requested marks (e.g., template only has 3),
-    // synthesize light placeholder steps so the UI always matches the selected marks.
-    if (mcqs.length < q.marks) {
-      const base = mcqs.length;
-      for (let i = 0; i < q.marks - base; i++) {
-        const stepNum = base + i + 1;
-        mcqs.push({
-          id: `mock-fill-${Date.now()}-${i}`,
-          question: `Checkpoint step ${stepNum}: Identify the next required quantity or relationship to progress the solution.`,
-          options: [
-            'State the relevant formula/law',
-            'Substitute given values',
-            'Compute the intermediate result',
-            'None of the above'
-          ],
-          correctAnswer: 0,
-          hint: 'Recall the governing formula that links known to unknown.',
-          explanation: 'Choosing the correct relationship first ensures correct substitution and computation.',
-          step: stepNum,
-          calculationStep: undefined
-        });
-      }
-    }
+    // Do not synthesize placeholder steps here; server handles top-up or client will enforce count after decode
 
     return { mcqs, solution: solutionData };
   };

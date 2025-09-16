@@ -131,14 +131,7 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
                   <p className="text-xs">{originalQuestion.content}</p>
                 </div>
               )}
-              <div>
-                {originalQuestion.type !== 'text' && (
-                  <p className="text-xs text-muted-foreground mb-2">AI-Extracted Question Text:</p>
-                )}
-                <p className="leading-relaxed">
-                  {originalQuestion.extractedText || originalQuestion.content}
-                </p>
-              </div>
+              {/* Removed AI-Extracted Question Text per request */}
             </div>
           </CardContent>
         </Card>
