@@ -620,27 +620,25 @@ export default function App() {
   const refreshTopMistakes = async (userId: string, filters?: { subject?: string; syllabus?: string; year?: string }) => {
     try {
       let q = supabase
-        .from('mistakes')
-        .select('category, description, count, last_occurred, subject, syllabus, year')
+        .from('v_user_focus_areas')
+        .select('subject, syllabus, year, wrong_steps, last_seen')
         .eq('user_id', userId);
       if (filters?.subject) q = q.eq('subject', filters.subject);
       if (filters?.syllabus) q = q.eq('syllabus', filters.syllabus);
       if (filters?.year) q = q.eq('year', filters.year);
       const { data: rows } = await q.limit(1000);
-      const aggregate = new Map<string, { id: string; category: string; description: string; count: number; lastOccurred: Date; examples: string[] }>();
-      (rows || []).forEach((r: any) => {
-        const key = `${r.category}|||${r.description}`;
-        const cur = aggregate.get(key) || { id: key, category: r.category, description: r.description, count: 0, lastOccurred: new Date(0), examples: [], subject: r.subject, syllabus: r.syllabus, year: r.year } as any;
-        cur.count += Number(r.count || 1);
-        const occurred = new Date(r.last_occurred || Date.now());
-        if (!cur.lastOccurred || occurred > cur.lastOccurred) cur.lastOccurred = occurred;
-        aggregate.set(key, cur);
-      });
-      const top3 = Array.from(aggregate.values()).sort((a, b) => {
-        if (b.count !== a.count) return b.count - a.count;
-        return (b.lastOccurred?.getTime?.() || 0) - (a.lastOccurred?.getTime?.() || 0);
-      }).slice(0, 3);
-      setUser((prev) => prev ? { ...prev, commonMistakes: top3 } : prev);
+      const items: any[] = (rows || []).map((r: any, i: number) => ({
+        id: `${r.subject || 'Unknown'}-${r.syllabus || 'Unknown'}-${r.year || 'Unknown'}-${i}`,
+        category: r.subject || 'Unknown',
+        description: `${r.syllabus || 'Unknown'} • ${r.year || 'Unknown'}`,
+        count: Number(r.wrong_steps || 0),
+        lastOccurred: new Date(r.last_seen || Date.now()),
+        examples: [],
+        subject: r.subject,
+        syllabus: r.syllabus,
+        year: r.year,
+      })).sort((a, b) => b.count - a.count).slice(0, 3);
+      setUser((prev) => prev ? { ...prev, commonMistakes: items } : prev);
     } catch {}
   };
 
