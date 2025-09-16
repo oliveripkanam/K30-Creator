@@ -214,6 +214,7 @@ export default function App() {
       setCurrentState('dashboard');
       // Fetch DB-backed totals & streak (non-blocking)
       void refreshDashboardMetrics(hydrated.id);
+      void refreshTopMistakes(hydrated.id);
     });
     return () => { sub.subscription.unsubscribe(); };
   }, []);
@@ -478,6 +479,7 @@ export default function App() {
           ]);
           console.log('[persist] saved question + steps (REST)', { questionId, steps: mcqs.length });
           try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
+          await updateAnswersAndMistakes(questionId, hasSessionNow);
         } else {
           const stepsInsert = supabase.from('mcq_steps').insert(
             mcqs.map((m, i) => ({
@@ -498,6 +500,7 @@ export default function App() {
           } else {
             console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
             try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
+            await updateAnswersAndMistakes(questionId, hasSessionNow);
           }
         }
       }
@@ -597,6 +600,27 @@ export default function App() {
     }
   };
 
+  // Fetch top mistakes for dashboard (aggregated)
+  const refreshTopMistakes = async (userId: string) => {
+    try {
+      const { data: rows } = await supabase
+        .from('mistakes')
+        .select('category, description, count, last_occurred')
+        .eq('user_id', userId)
+        .order('count', { ascending: false })
+        .limit(3);
+      const mapped = (rows || []).map((r: any, i: number) => ({
+        id: `${r.category}-${i}`,
+        category: r.category,
+        description: r.description,
+        count: Number(r.count || 0),
+        lastOccurred: new Date(r.last_occurred || Date.now()),
+        examples: [],
+      }));
+      setUser((prev) => prev ? { ...prev, commonMistakes: mapped } : prev);
+    } catch {}
+  };
+
   const calculateTokens = (marks: number, mcqCount: number, timeSpent: number): number => {
     let baseTokens = marks * 10; // 10 tokens per mark
     let bonusTokens = 0;
@@ -610,6 +634,78 @@ export default function App() {
     bonusTokens += mcqCount * 5;
     
     return baseTokens + bonusTokens;
+  };
+
+  // After inserting mcq_steps, write user's answers from the runtime log and record mistakes
+  const updateAnswersAndMistakes = async (questionId: string, hasSessionNow: boolean) => {
+    // Read runtime answer log (built in MCQInterface)
+    let answerLog: Array<{ step: number; userAnswer?: number; correctAnswer?: number; question?: string; explanation?: string }> = [];
+    try { answerLog = (window as any).__k30_answerLog || []; } catch {}
+    if (!Array.isArray(answerLog) || answerLog.length === 0) return;
+
+    const accessFromLocal = () => {
+      let accessToken = '';
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+          const v = localStorage.getItem(k) || '';
+          try { const parsed = JSON.parse(v || '{}'); accessToken = parsed?.access_token || ''; } catch {}
+          if (accessToken) break;
+        }
+      }
+      return accessToken;
+    };
+
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+    const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+
+    for (const entry of answerLog) {
+      const userLabel = typeof entry.userAnswer === 'number' ? String.fromCharCode(65 + entry.userAnswer) : null;
+      const correctLabel = typeof entry.correctAnswer === 'number' ? String.fromCharCode(65 + entry.correctAnswer) : null;
+      const isCorrect = userLabel && correctLabel ? userLabel === correctLabel : null;
+      const stepIndex = (entry.step || 1) - 1;
+
+      try {
+        if (!hasSessionNow) {
+          const token = accessFromLocal();
+          // Update mcq_steps row via REST with filters
+          await fetch(`${envUrl}/rest/v1/mcq_steps?question_id=eq.${questionId}&step_index=eq.${stepIndex}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': envAnon, 'Prefer': 'resolution=merge-duplicates' } as any,
+            body: JSON.stringify({ user_answer: userLabel, is_correct: isCorrect, answered_at: new Date().toISOString() }),
+          });
+        } else {
+          await supabase
+            .from('mcq_steps')
+            .update({ user_answer: userLabel, is_correct: isCorrect, answered_at: new Date().toISOString() })
+            .eq('question_id', questionId)
+            .eq('step_index', stepIndex);
+        }
+      } catch {}
+
+      // Record a mistake row only when incorrect
+      if (isCorrect === false && user) {
+        const category = (currentQuestion as any)?.subject || 'General';
+        const description = (entry.explanation || entry.question || '').toString().slice(0, 180) || 'Incorrect step';
+        try {
+          if (!hasSessionNow) {
+            const token = accessFromLocal();
+            await fetch(`${envUrl}/rest/v1/mistakes`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': envAnon, 'Prefer': 'return=minimal' } as any,
+              body: JSON.stringify({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString() }),
+            });
+          } else {
+            await supabase
+              .from('mistakes')
+              .insert({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString() });
+          }
+        } catch {}
+      }
+    }
+
+    // Refresh dashboard mistakes
+    void refreshTopMistakes(user!.id);
   };
 
   const loadMockCompletedQuestions = () => {
