@@ -49,6 +49,7 @@ You MUST base everything ONLY on the given problem. Do not invent unrelated scen
 Return STRICT JSON with keys: mcqs (array) and solution (object).
 mcqs[i] fields: id, question, options (exactly 4), correctAnswer (0-based index), hint, explanation, step (1..N), calculationStep { formula, substitution, result } optional.
 solution fields: finalAnswer, unit, workingSteps[], keyFormulas[].
+Hints must be short, concrete, and immediately actionable (e.g., “Differentiate s(t) to get v(t)”, “Resolve forces along the plane”, “Use Pythagoras on components”).
 Questions MUST directly progress toward the final answer for THIS problem.`;
 
   const contextLine = (subject || syllabus || level)
@@ -85,13 +86,12 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
     }
 
     const includedImage = messageContent.some((p) => p?.type === 'image_url');
-    const maxTokens = Math.min(2000, Math.max(800, Number(getEnv('DECODER_MAX_TOKENS') || 1200)));
-    dbg('request summary (primary)', { includedImage, maxTokens, response_format: 'text', messageParts: messageContent.map(p => p?.type).join(',') });
+    // Remove explicit token caps; allow service default limits
+    dbg('request summary (primary)', { includedImage, response_format: 'text', parts: messageContent.map(p => p?.type).join(',') });
     let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        max_completion_tokens: maxTokens,
         response_format: { type: 'text' },
         messages: [
           { role: 'system', content: system },
@@ -109,7 +109,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: Math.min(maxTokens, 1200),
           response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
@@ -143,7 +142,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
           response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
@@ -172,7 +170,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
               body: JSON.stringify({
-                max_completion_tokens: Math.min(1200, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
                 response_format: { type: 'text' },
                 messages: [
                   { role: 'system', content: system },
@@ -196,7 +193,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
                 body: JSON.stringify({
-                  max_completion_tokens: Math.min(1000, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
                   response_format: { type: 'text' },
                   messages: [
                     { role: 'system', content: system },
@@ -365,7 +361,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
             body: JSON.stringify({
-              max_completion_tokens: Math.min(900, Number(getEnv('DECODER_MAX_TOKENS') || 1200)),
               response_format: { type: 'text' },
               messages: [
                 { role: 'system', content: system },
@@ -411,12 +406,22 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       if (typeof ca === 'string' && /^\d+$/.test(ca)) ca = Number(ca);
       if (typeof ca !== 'number' || Number.isNaN(ca)) ca = 0;
       ca = Math.max(0, Math.min(3, ca));
+      const rawHint = String(m.hint || '').trim();
+      const improvedHint = rawHint && rawHint.length > 0 ? rawHint : (() => {
+        const q = String(m.question || '').toLowerCase();
+        if (/differentiat|derivative|rate of change/.test(q)) return 'Differentiate the relevant quantity with respect to time.';
+        if (/integrat|area under|accumulate/.test(q)) return 'Integrate the known rate to recover the required quantity.';
+        if (/resolve|component|incline|angle/.test(q)) return 'Resolve vectors along and perpendicular to the reference direction.';
+        if (/pythag|magnitude|resultant/.test(q)) return 'Use Pythagoras on the components to find the magnitude.';
+        if (/newton|force|mass|accel/.test(q)) return 'Apply F = ma along the direction of motion.';
+        return 'Identify the next governing relationship and apply it before substituting values.';
+      })();
       normalized.push({
         id: String(m.id || `mcq-${Date.now()}-${i}`),
         question: String(m.question || '').trim().slice(0, 500) || `Step ${i + 1}: Choose the next best action`,
         options: opts,
         correctAnswer: ca,
-        hint: String(m.hint || 'Consider the principle that advances toward the final result.').slice(0, 300),
+        hint: improvedHint.slice(0, 300),
         explanation: String(m.explanation || 'Select the option that logically progresses the solution.').slice(0, 600),
         step: Number(m.step) || (i + 1),
         calculationStep: m.calculationStep

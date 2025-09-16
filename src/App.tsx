@@ -161,6 +161,19 @@ export default function App() {
 
   const handleLogout = async () => {
     try { await supabase.auth.signOut(); } catch {}
+    try {
+      // Ensure any lingering OAuth hash is cleared
+      if (window.location.hash) {
+        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+      }
+      // Hard clear any cached sb auth tokens if present
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+          try { localStorage.removeItem(k); } catch {}
+        }
+      }
+    } catch {}
     setUser(null);
     setCurrentState('login');
   };

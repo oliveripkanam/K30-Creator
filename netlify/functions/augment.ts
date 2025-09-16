@@ -76,7 +76,6 @@ Output ONLY the final cleaned problem text. No explanations.`;
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        max_completion_tokens: 4000,
         response_format: { type: 'text' },
         messages: [
           { role: 'system', content: system },
@@ -90,7 +89,6 @@ Output ONLY the final cleaned problem text. No explanations.`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
-          max_completion_tokens: 1500,
           response_format: { type: 'text' },
           messages: [
             { role: 'system', content: system },
