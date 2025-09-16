@@ -10,6 +10,7 @@ import { MCQInterface } from './components/MCQInterface';
 import { SolutionSummaryComponent } from './components/SolutionSummary';
 import { ReviewPage } from './components/ReviewPage';
 import { QuestionHistory } from './components/QuestionHistory';
+import { QuestionDetail } from './components/QuestionDetail';
 
 interface MistakeType {
   id: string;
@@ -73,11 +74,13 @@ interface SolutionSummary {
   keyFormulas: string[];
 }
 
-type AppState = 'login' | 'dashboard' | 'input' | 'extractor' | 'verify' | 'decoder' | 'mcq' | 'solution' | 'history' | 'review';
+type AppState = 'login' | 'dashboard' | 'input' | 'extractor' | 'verify' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review';
+const [selectedHistoryId, setSelectedHistoryId] = [undefined as any];
 
 export default function App() {
   const [currentState, setCurrentState] = useState<AppState>('login');
   const [user, setUser] = useState<User | null>(null);
+  const [selectedHistoryId, setSelectedHistoryId] = useState<string | null>(null);
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [mcqs, setMCQs] = useState<MCQ[]>([]);
   const [currentMCQIndex, setCurrentMCQIndex] = useState(0);
@@ -728,6 +731,14 @@ export default function App() {
           <QuestionHistory
             userId={user!.id}
             onBack={() => setCurrentState('dashboard')}
+            onOpenDetail={(id) => { setSelectedHistoryId(id); setCurrentState('history_detail'); }}
+          />
+        );
+      case 'history_detail':
+        return (
+          <QuestionDetail
+            questionId={selectedHistoryId!}
+            onBack={() => setCurrentState('history')}
           />
         );
       default:

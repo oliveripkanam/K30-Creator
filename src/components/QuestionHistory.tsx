@@ -32,9 +32,9 @@ interface CompletedQuestion extends Question {
   solutionSummary: SolutionSummary;
 }
 
-interface QuestionHistoryProps { userId: string; onBack: () => void; }
+interface QuestionHistoryProps { userId: string; onBack: () => void; onOpenDetail?: (id: string) => void; }
 
-export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
+export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistoryProps) {
   const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -381,7 +381,11 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
             </Card>
           ) : (
             filteredAndSortedQuestions.map((question) => (
-              <Card key={question.id} className="hover:shadow-md transition-shadow">
+              <Card 
+                key={question.id} 
+                className="hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => onOpenDetail && onOpenDetail(question.id)}
+              >
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex items-center space-x-3">
