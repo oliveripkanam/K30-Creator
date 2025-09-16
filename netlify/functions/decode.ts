@@ -45,7 +45,9 @@ export default async (req: Request) => {
     syllabus ? `Syllabus/Board: ${syllabus}` : '',
     level ? `Year/Level: ${level}` : '',
   ].filter(Boolean);
-  const userText = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
+  const userTextRaw = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
+  // Trim overly long inputs to keep requests fast and under provider limits
+  const userText = userTextRaw.slice(0, 8000);
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
@@ -70,8 +72,8 @@ export default async (req: Request) => {
 
   try {
     const messageContent: any[] = [ { type: 'text', text: userText } ];
-    if (imageBase64 && imageMimeType && /^image\//i.test(imageMimeType)) {
-      // Azure Chat Completions expects { type: 'image_url', image_url: { url } }
+    // To reduce payload size/timeouts, only attach the image if we lack adequate text context
+    if ((!text || text.length < 80) && imageBase64 && imageMimeType && /^image\//i.test(imageMimeType)) {
       messageContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageBase64}` } });
     }
 
