@@ -50,6 +50,67 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   const [currentStep, setCurrentStep] = useState('');
   const [isComplete, setIsComplete] = useState(false);
 
+  // -----------------------------
+  // Hint improvement utilities
+  // -----------------------------
+  const isWeakHint = (hint?: string): boolean => {
+    if (!hint) return true;
+    const h = hint.trim();
+    if (h.length < 12) return true;
+    const genericBits = ['consider', 'think about', 'recall', 'maybe', 'try', 'reflect'];
+    return genericBits.some((g) => h.toLowerCase().includes(g));
+  };
+
+  const deriveHintFromCalc = (mcq: MCQ): string | null => {
+    const calc = mcq.calculationStep;
+    if (!calc) return null;
+    if (calc.formula && calc.substitution) {
+      return `Use ${calc.formula} and substitute: ${calc.substitution}.`;
+    }
+    if (calc.formula) return `Start with ${calc.formula}. Identify knowns, then substitute.`;
+    if (calc.substitution) return `Substitute given values: ${calc.substitution}.`;
+    return null;
+  };
+
+  const deriveHintFromQuestion = (mcq: MCQ, q: Question): string | null => {
+    const text = `${q.extractedText || q.content} ${mcq.question}`.toLowerCase();
+    if (text.includes('velocity') || text.includes('speed')) return 'Identify knowns, then pick the relation linking them to the asked quantity.';
+    if (text.includes('force') || text.includes('mass') || text.includes('acceleration')) return 'Link given quantities with one governing relation before computing.';
+    if (text.includes('concentration') || text.includes('mole') || text.includes('ph')) return 'Match the asked quantity to the formula that directly relates your knowns.';
+    if (text.includes('graph') || text.includes('table')) return 'Read the axis/headers for the needed variable and use the nearest relation.';
+    return null;
+  };
+
+  const deriveHintFromOptions = (mcq: MCQ): string | null => {
+    const opts = mcq.options || [];
+    const hasFormula = opts.some(o => /formula|law|equation/i.test(o));
+    const hasSub = opts.some(o => /substitute|plug|insert/i.test(o));
+    const hasCompute = opts.some(o => /compute|calculate|evaluate/i.test(o));
+    if (hasFormula && hasSub) return 'First choose the governing relation, then substitute known values.';
+    if (hasSub && hasCompute) return 'Substitute the given values before computing the result.';
+    if (hasFormula) return 'Select the relation that directly connects given to target.';
+    return null;
+  };
+
+  const strengthenHint = (mcq: MCQ, q: Question): string => {
+    const fromCalc = deriveHintFromCalc(mcq);
+    if (fromCalc) return fromCalc;
+    const fromQ = deriveHintFromQuestion(mcq, q);
+    if (fromQ) return fromQ;
+    const fromOpts = deriveHintFromOptions(mcq);
+    if (fromOpts) return fromOpts;
+    return 'Underline what is asked, list knowns, then choose the relation that links them.';
+  };
+
+  const improveHints = (mcqs: MCQ[], q: Question): MCQ[] => {
+    return mcqs.map((m) => {
+      if (isWeakHint(m.hint)) {
+        return { ...m, hint: strengthenHint(m, q) };
+      }
+      return m;
+    });
+  };
+
   const steps = [
     'Analyzing question content...',
     'Identifying key concepts...',
@@ -207,6 +268,9 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                 keyFormulas: data.solution.keyFormulas || []
               };
             }
+            // Improve weak/missing hints for all steps
+            mcqsOut = improveHints(mcqsOut, question);
+
             if (!cancelled) {
               setProgress(100);
               setIsComplete(true);
@@ -228,7 +292,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       // Fallback
       if (!cancelled) {
         console.warn('[decoder] falling back to local mock generation');
-        const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
+        let { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
+        generatedMCQs = improveHints(generatedMCQs, question);
         setProgress(100);
         setIsComplete(true);
         onDecoded(generatedMCQs, solution);
