@@ -369,6 +369,19 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
           if (Array.isArray(data.mcqs) && data.solution) {
+            // If the model returned nothing, use local generation rather than only filler
+            const originalCount = Array.isArray(data.mcqs) ? data.mcqs.length : 0;
+            if (originalCount === 0) {
+              const { mcqs: generatedMCQs, solution } = generateSolutionMCQs(question);
+              const improved = improveHints(generatedMCQs, question);
+              if (!cancelled) {
+                setProgress(100);
+                setIsComplete(true);
+                onDecoded(improved.slice(0, Math.min(8, question.marks)), solution);
+              }
+              return;
+            }
+
             // Enforce MCQ count equals marks (no placeholder wording)
             let mcqsOut = Array.isArray(data.mcqs) ? data.mcqs.slice(0) : [];
             const need = Math.max(0, Math.min(8, question.marks) - mcqsOut.length);
