@@ -281,16 +281,22 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               }
             }
 
-            let transformedSolution = data.solution;
-            if (typeof data.solution.finalAnswer === 'object') {
-              const answerObj = data.solution.finalAnswer;
-              transformedSolution = {
-                ...data.solution,
-                finalAnswer: Object.entries(answerObj).map(([key, value]) => `${key}: ${value}`).join(', '),
-                workingSteps: data.solution.workingSteps || [],
-                keyFormulas: data.solution.keyFormulas || []
-              };
+            // Normalize solution object to guarantee arrays/strings
+            let transformedSolution: any = {
+              finalAnswer: '',
+              unit: '',
+              workingSteps: [],
+              keyFormulas: [],
+            };
+            const sol: any = data.solution || {};
+            if (typeof sol.finalAnswer === 'object' && sol.finalAnswer) {
+              transformedSolution.finalAnswer = Object.entries(sol.finalAnswer).map(([k, v]) => `${k}: ${v}`).join(', ');
+            } else {
+              transformedSolution.finalAnswer = String(sol.finalAnswer || '');
             }
+            transformedSolution.unit = String(sol.unit || '');
+            transformedSolution.workingSteps = Array.isArray(sol.workingSteps) ? sol.workingSteps : [];
+            transformedSolution.keyFormulas = Array.isArray(sol.keyFormulas) ? sol.keyFormulas : [];
             // Improve weak/missing hints for all steps
             mcqsOut = improveHints(mcqsOut, question);
 
@@ -333,7 +339,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         generatedMCQs = improveHints(generatedMCQs, question);
         setProgress(100);
         setIsComplete(true);
-        onDecoded(generatedMCQs, solution);
+          onDecoded(generatedMCQs, solution);
       }
     };
 
