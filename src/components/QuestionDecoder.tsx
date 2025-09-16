@@ -74,6 +74,25 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
 
   const deriveHintFromQuestion = (mcq: MCQ, q: Question): string | null => {
     const text = `${q.extractedText || q.content} ${mcq.question}`.toLowerCase();
+    const stem = String(mcq.question || '');
+    const isConceptualLikely = !/[=0-9]/.test(stem) && /(what is|which of the following|define|best describes|identify|classify)/i.test(stem);
+
+    // Generic definitional/classification hints (subject-agnostic)
+    if (isConceptualLikely) {
+      // Try to extract concept and context: "What is the X in Y?"
+      const m1 = stem.match(/what is (?:the |an )?([^?]+?)(?: in ([^?]+))?\?/i);
+      const m2 = stem.match(/which (?:of the following )?(?:is|are) (?:the |an )?([^?]+?)(?: in ([^?]+))?\?/i);
+      const concept = (m1?.[1] || m2?.[1] || '').trim();
+      const context = (m1?.[2] || m2?.[2] || '').trim();
+      if (concept && context) {
+        return `Recall the definition of “${concept}” in “${context}”; choose the option that states it.`;
+      }
+      if (concept) {
+        return `Recall the syllabus definition of “${concept}”; pick the option that states it.`;
+      }
+      return 'Use the syllabus definition of the asked term; choose the option that states it.';
+    }
+
     // Biology / conceptual cues
     if (/(short\-term|long\-term|effect|risk|symptom|cause|mechanism|process)/.test(text)) {
       if (/short\-term/.test(text)) return 'Focus on immediate physiological or behavioral effects (hours to days).';
