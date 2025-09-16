@@ -40,22 +40,12 @@ export default async (req: Request) => {
     return respond(500, { error: 'Missing Azure OpenAI endpoint or api key' });
   }
 
-  const scope = subject || syllabus || level 
-    ? `${subject || 'subject'}${syllabus ? ` (${syllabus})` : ''}${level ? ` — ${level}` : ''}`
-    : 'A-Level mechanics';
-
-  const system = `You are a precise ${scope} tutor.
-You MUST base everything ONLY on the given problem. Do not invent unrelated scenarios.
-Return STRICT JSON with keys: mcqs (array) and solution (object).
-mcqs[i] fields: id, question, options (exactly 4), correctAnswer (0-based index), hint, explanation, step (1..N), calculationStep { formula, substitution, result } optional.
-solution fields: finalAnswer, unit, workingSteps[], keyFormulas[].
-Hints must be short, concrete, and immediately actionable (e.g., “Differentiate s(t) to get v(t)”, “Resolve forces along the plane”, “Use Pythagoras on components”).
-Questions MUST directly progress toward the final answer for THIS problem.`;
-
-  const contextLine = (subject || syllabus || level)
-    ? `Subject: ${subject || 'N/A'}; Syllabus/Board: ${syllabus || 'N/A'}; Year/Level: ${level || 'N/A'}.`
-    : `Domain: A-Level mechanics.`;
-  const userText = `${contextLine}\n\nProblem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nIf an image is attached, use it only to disambiguate geometry/labels. Output JSON ONLY (no prose).`;
+  const headerParts = [
+    subject ? `Subject: ${subject}` : '',
+    syllabus ? `Syllabus/Board: ${syllabus}` : '',
+    level ? `Year/Level: ${level}` : '',
+  ].filter(Boolean);
+  const userText = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
@@ -94,7 +84,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
       body: JSON.stringify({
         response_format: { type: 'text' },
         messages: [
-          { role: 'system', content: system },
           { role: 'user', content: messageContent }
         ]
       })
@@ -111,7 +100,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         body: JSON.stringify({
           response_format: { type: 'text' },
           messages: [
-            { role: 'system', content: system },
             { role: 'user', content: [{ type: 'text', text: userText }] }
           ]
         })
@@ -144,8 +132,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
         body: JSON.stringify({
           response_format: { type: 'text' },
           messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: [{ type: 'text', text: `${userText}\n\nReturn ONLY the JSON object with keys mcqs and solution.` }] }
+            { role: 'user', content: [{ type: 'text', text: `${userText}` }] }
           ]
         })
       });
@@ -172,7 +159,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
               body: JSON.stringify({
                 response_format: { type: 'text' },
                 messages: [
-                  { role: 'system', content: system },
                   { role: 'user', content: [{ type: 'text', text: userText }] }
                 ]
               })
@@ -195,8 +181,7 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
                 body: JSON.stringify({
                   response_format: { type: 'text' },
                   messages: [
-                    { role: 'system', content: system },
-                    { role: 'user', content: [{ type: 'text', text: `${userText}\n\nReturn ONLY the JSON object with keys mcqs and solution.` }] }
+                    { role: 'user', content: [{ type: 'text', text: `${userText}` }] }
                   ]
                 })
               });
@@ -363,7 +348,6 @@ Questions MUST directly progress toward the final answer for THIS problem.`;
             body: JSON.stringify({
               response_format: { type: 'text' },
               messages: [
-                { role: 'system', content: system },
                 { role: 'user', content: [{ type: 'text', text: topUpUser }] }
               ]
             })

@@ -52,18 +52,13 @@ export default async (req: Request) => {
 
   const url = buildUrl(endpoint, deployment, apiVersion);
 
-  const scope = subject || syllabus || level 
-    ? `${subject || 'subject'}${syllabus ? ` (${syllabus})` : ''}${level ? ` — ${level}` : ''}`
-    : 'A-Level mechanics';
-
-  const system = `You rewrite OCR output of ${scope} problems into a clean, single-block statement suitable for solving.
-If a year/level is provided (e.g., Year 8, Grade 7, Form 2, A‑Level), keep the wording but do not invent content.
-Use diagram/image (if provided) to recover numeric labels and relationships.
-Normalize fractions and units: join stacked lines (5/12, 12mg/5), keep symbols where present.
-Remove headings like "Figure 1", stray labels (A, B) unless referenced, and page numbers.
-Output ONLY the final cleaned problem text. No explanations.`;
-
-  const userText = `OCR text:\n${text}`;
+  // Remove system prompt; send only user text with optional subject/syllabus/level header
+  const headerParts = [
+    subject ? `Subject: ${subject}` : '',
+    syllabus ? `Syllabus/Board: ${syllabus}` : '',
+    level ? `Year/Level: ${level}` : '',
+  ].filter(Boolean);
+  const userText = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
   const contentPayload: any = (imageBase64 && imageMimeType && /^image\//i.test(imageMimeType))
     ? [
         { type: 'text', text: userText },
@@ -78,7 +73,6 @@ Output ONLY the final cleaned problem text. No explanations.`;
       body: JSON.stringify({
         response_format: { type: 'text' },
         messages: [
-          { role: 'system', content: system },
           { role: 'user', content: contentPayload },
         ]
       })
@@ -91,7 +85,6 @@ Output ONLY the final cleaned problem text. No explanations.`;
         body: JSON.stringify({
           response_format: { type: 'text' },
           messages: [
-            { role: 'system', content: system },
             { role: 'user', content: userText },
           ]
         })
