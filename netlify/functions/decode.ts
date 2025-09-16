@@ -487,7 +487,7 @@ export default async (req: Request) => {
       const refineMsg = [
         { type: 'text', text: `${headerParts.join(' • ')}`.slice(0, 120) },
         { type: 'text', text: `Original text (trimmed):\n${userTextRaw.slice(0, 400)}` },
-        { type: 'text', text: `Rewrite hints with discriminative cues. Output JSON only: { "hints": [{"id":"<mcq id>", "hint":"<rewritten>"}, ...] }. Rules:\n- Start with 'Hint: ' and keep 11–18 words.\n- Reference the stem concept (key term) or focus (e.g., time scale) explicitly.\n- Include ONE discriminative cue: (a) contrast vs common distractor (vs/not/unlike), (b) key attribute/mechanism/time scale, or (c) elimination rule.\n- Never use generic/meta phrasing (avoid: recall/consider/choose/definition/think).\n- Do NOT copy a full option string or reveal the exact answer phrase.\nInput: ${JSON.stringify(items)}` }
+        { type: 'text', text: `Rewrite hints with discriminative cues. Output JSON only: { "hints": [{"id":"<mcq id>", "hint":"<rewritten>"}, ...] }. Rules:\n- Start with 'Hint: ' and keep 11–18 words.\n- Reference the stem concept (key term) or focus (e.g., time scale) explicitly.\n- Use a MIX of cue types across hints: (a) key attribute/mechanism/time scale, (b) elimination rule, (c) ONE contrast vs a common distractor.\n- Limit contrast phrasing ('unlike', 'vs') to at most one in every three hints.\n- Vary verbs: use Note/Use/Check/Look for/Consider (avoid repetition).\n- Never use generic/meta phrasing (avoid: recall/consider/choose/definition/think).\n- Do NOT copy a full option string or reveal the exact answer phrase.\nInput: ${JSON.stringify(items)}` }
       ];
       const refineRes = await fetch(url, {
         method: 'POST',
@@ -511,12 +511,30 @@ export default async (req: Request) => {
               map.set(it.id, it.hint.trim());
             }
           }
+          // Apply mapped hints first
           ensured.mcqs = ensured.mcqs.map((m: any) => {
             const cand = map.get(String(m.id || '')) || '';
             const clean = cand.slice(0, 180);
             if (clean && !looksGeneric(clean)) return { ...m, hint: clean };
             if (looksGeneric(m.hint) && clean) return { ...m, hint: clean };
             return m;
+          });
+          // Diversify contrast phrasing if overused
+          const hasContrast = (s: string) => /\bunlike\b|\bvs\b/i.test(String(s || ''));
+          const total = ensured.mcqs.length || 0;
+          const maxContrast = Math.floor(total / 3);
+          let countContrast = 0;
+          ensured.mcqs = ensured.mcqs.map((m: any) => {
+            const h = String(m.hint || '');
+            if (!hasContrast(h)) return m;
+            countContrast++;
+            if (countContrast <= maxContrast) return m;
+            // Replace contrast with attribute/mechanism phrasing
+            const noContrast = h.replace(/[,;]?\s*(unlike|vs)\b[\s\S]*$/i, '').trim();
+            const replacement = noContrast && noContrast.length > 8
+              ? `${noContrast}. Use a key attribute/mechanism to decide.`
+              : 'Hint: look for a key attribute or mechanism to eliminate distractors.';
+            return { ...m, hint: replacement.slice(0, 180) };
           });
         }
       }

@@ -153,11 +153,24 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       }
       return 'Hint: use a key attribute or mechanism to eliminate common distractors.';
     };
+    let contrastBudget = Math.floor(mcqs.length / 3);
+    const hasContrast = (s: string) => /\bunlike\b|\bvs\b/i.test(String(s || ''));
     return mcqs.map((m) => {
       let hint = isWeakHint(m.hint) ? strengthenHint(m, q) : String(m.hint || '').trim();
       const key = normalize(hint);
       if (used.has(key)) {
         hint = altHintFor(m);
+      }
+      if (hasContrast(hint)) {
+        if (contrastBudget > 0) {
+          contrastBudget--;
+        } else {
+          // convert contrast to attribute/mechanism phrasing
+          const noContrast = hint.replace(/[,;]?\s*(unlike|vs)\b[\s\S]*$/i, '').trim();
+          hint = noContrast && noContrast.length > 8
+            ? `${noContrast}. Use a key attribute or mechanism to decide.`
+            : 'Hint: look for a key attribute or mechanism to eliminate distractors.';
+        }
       }
       used.add(normalize(hint));
       return { ...m, hint };
