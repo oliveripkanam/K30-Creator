@@ -81,7 +81,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         console.log('[decoder] POST /api/ai-decode');
         const payload = {
           text: question.extractedText || question.content,
-          marks: Math.min(6, Math.max(1, question.marks)),
+          marks: Math.min(8, Math.max(1, question.marks)),
           ...(question.fileData?.base64 && question.fileData?.mimeType
             ? { imageBase64: question.fileData.base64, imageMimeType: question.fileData.mimeType }
             : {}),
