@@ -39,6 +39,7 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
+    let aborted = false;
     const fetchHistory = async () => {
       setLoading(true);
       setError(null);
@@ -49,6 +50,7 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
           .eq('user_id', userId)
           .order('decoded_at', { ascending: false });
         if (error) throw error;
+        if (aborted) return;
         const mapped: CompletedQuestion[] = (data || []).map((q: any) => ({
           id: q.id,
           content: q.original_input || '',
@@ -64,12 +66,20 @@ export function QuestionHistory({ userId, onBack }: QuestionHistoryProps) {
         }));
         setCompletedQuestions(mapped);
       } catch (e: any) {
+        if (aborted) return;
         setError(e.message || 'Failed to load history');
       } finally {
+        if (aborted) return;
         setLoading(false);
       }
     };
     fetchHistory();
+    const onRefresh = () => fetchHistory();
+    window.addEventListener('k30:history:refresh', onRefresh);
+    return () => {
+      aborted = true;
+      window.removeEventListener('k30:history:refresh', onRefresh);
+    };
   }, [userId]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'marks' | 'tokens'>('date');

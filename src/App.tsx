@@ -457,6 +457,7 @@ export default function App() {
             new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000)),
           ]);
           console.log('[persist] saved question + steps (REST)', { questionId, steps: mcqs.length });
+          try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
         } else {
           const stepsInsert = supabase.from('mcq_steps').insert(
             mcqs.map((m, i) => ({
@@ -476,6 +477,7 @@ export default function App() {
             console.error('[persist] insert mcq_steps failed', { error: stepsErr });
           } else {
             console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
+            try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
           }
         }
       }
