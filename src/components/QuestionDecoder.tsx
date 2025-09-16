@@ -140,9 +140,18 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
     const normalize = (s: string) => s.trim().toLowerCase();
     const altHintFor = (mcq: MCQ): string => {
       const text = `${q.extractedText || q.content} ${mcq.question}`.toLowerCase();
-      if (/long\-term|chronic/.test(text)) return 'Pick one chronic risk (develops over months–years).';
-      if (/short\-term|acute/.test(text)) return 'Pick one immediate effect (hours–days).';
-      return 'Choose one clear, syllabus‑valid fact that directly answers the prompt.';
+      if (/long\-term|chronic/.test(text)) return 'Hint: unlike short-term effects, cite one chronic risk (months–years).';
+      if (/short\-term|acute/.test(text)) return 'Hint: pick one immediate effect (hours–days), not a chronic outcome.';
+      // Definitional stems: add discriminative cue
+      const stem = String(mcq.question || '');
+      if (/(what is|define|best describes|identify)/i.test(stem)) {
+        const m = stem.match(/what is (?:the |an )?([^?]+?)(?: in ([^?]+))?\?/i);
+        const concept = (m?.[1] || '').trim();
+        const context = (m?.[2] || '').trim();
+        if (concept && context) return `Hint: key attribute of “${concept}” in “${context}” (not a function).`;
+        if (concept) return `Hint: key attribute of “${concept}” (structure/property, not its use).`;
+      }
+      return 'Hint: use a key attribute or mechanism to eliminate common distractors.';
     };
     return mcqs.map((m) => {
       let hint = isWeakHint(m.hint) ? strengthenHint(m, q) : String(m.hint || '').trim();

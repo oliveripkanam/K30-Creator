@@ -475,25 +475,26 @@ export default async (req: Request) => {
     ensured.mcqs = (ensured.mcqs || []);
     ensured.mcqs = ensured.mcqs.slice(0, marks);
 
-    // Optional: refine hints to be specific and concept-aware, avoiding generic phrasing
-    const looksGeneric = (s: string) => /choose one clear|underline what is asked|choose the option|think about|consider|recall the syllabus/i.test(String(s || ''));
+    // Optional: refine hints to be specific and concept-aware, avoiding generic/meta phrasing
+    const looksGeneric = (s: string) => /choose one clear|underline what is asked|choose the option|think about|consider|recall the syllabus|recall the definition|pick the option/i.test(String(s || ''));
     try {
-      const items = ensured.mcqs.map((m: any, i: number) => ({
-        idx: i,
-        question: String(m.question || '').slice(0, 160),
+      const items = ensured.mcqs.map((m: any) => ({
+        id: String(m.id || ''),
+        question: String(m.question || '').slice(0, 220),
+        options: Array.isArray(m.options) ? m.options.map((o: any) => String(o || '').slice(0, 120)) : [],
         hint: String(m.hint || '').slice(0, 140),
       }));
       const refineMsg = [
         { type: 'text', text: `${headerParts.join(' • ')}`.slice(0, 120) },
         { type: 'text', text: `Original text (trimmed):\n${userTextRaw.slice(0, 400)}` },
-        { type: 'text', text: `Rewrite each hint to be specific and actionable. Rules:\n- Reference the stem concept in the question (use the key term).\n- Do NOT reveal the answer. Avoid generic or meta phrasing.\n- Keep 9–18 words. Start with 'Hint: '.\nInput: ${JSON.stringify(items)}` }
+        { type: 'text', text: `Rewrite hints with discriminative cues. Output JSON only: { "hints": [{"id":"<mcq id>", "hint":"<rewritten>"}, ...] }. Rules:\n- Start with 'Hint: ' and keep 11–18 words.\n- Reference the stem concept (key term) or focus (e.g., time scale) explicitly.\n- Include ONE discriminative cue: (a) contrast vs common distractor (vs/not/unlike), (b) key attribute/mechanism/time scale, or (c) elimination rule.\n- Never use generic/meta phrasing (avoid: recall/consider/choose/definition/think).\n- Do NOT copy a full option string or reveal the exact answer phrase.\nInput: ${JSON.stringify(items)}` }
       ];
       const refineRes = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
           response_format: { type: 'text' },
-          temperature: 0.1,
+          temperature: 0.2,
           messages: [ { role: 'user', content: refineMsg } ]
         })
       });
@@ -502,15 +503,19 @@ export default async (req: Request) => {
         const content2 = rd?.choices?.[0]?.message?.content || '';
         let refined: any = null;
         try { refined = JSON.parse(content2); } catch { const m = content2.match(/\{[\s\S]*\}/); if (m) { try { refined = JSON.parse(m[0]); } catch {} } }
-        const arr: string[] = Array.isArray(refined?.hints) ? refined.hints : [];
-        if (arr.length === ensured.mcqs.length) {
-          ensured.mcqs = ensured.mcqs.map((m: any, i: number) => {
-            const cand = String(arr[i] || '').trim().slice(0, 160);
-            if (cand && !looksGeneric(cand)) {
-              return { ...m, hint: cand };
+        const arr: Array<{ id: string; hint: string }> = Array.isArray(refined?.hints) ? refined.hints : [];
+        if (arr.length) {
+          const map = new Map<string, string>();
+          for (const it of arr) {
+            if (it && typeof it.id === 'string' && typeof it.hint === 'string') {
+              map.set(it.id, it.hint.trim());
             }
-            // If original was generic, prefer candidate even if similar length
-            if (looksGeneric(m.hint) && cand) return { ...m, hint: cand };
+          }
+          ensured.mcqs = ensured.mcqs.map((m: any) => {
+            const cand = map.get(String(m.id || '')) || '';
+            const clean = cand.slice(0, 180);
+            if (clean && !looksGeneric(clean)) return { ...m, hint: clean };
+            if (looksGeneric(m.hint) && clean) return { ...m, hint: clean };
             return m;
           });
         }
