@@ -282,6 +282,28 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             return [];
           }
         };
+        // Downscale/compress raw image uploads to reduce payload (to ~1024px, JPEG q=0.6)
+        const compressImageBase64 = async (base64: string, mime: string): Promise<string> => {
+          try {
+            const img = new Image();
+            img.src = `data:${mime};base64,${base64}`;
+            await new Promise((resolve, reject) => { img.onload = resolve as any; img.onerror = reject as any; });
+            const maxW = 1024;
+            const scale = Math.min(1, maxW / (img.width || maxW));
+            const w = Math.max(1, Math.floor((img.width || maxW) * scale));
+            const h = Math.max(1, Math.floor((img.height || maxW) * scale));
+            const canvas = document.createElement('canvas');
+            canvas.width = w; canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return base64;
+            ctx.drawImage(img, 0, 0, w, h);
+            const out = canvas.toDataURL('image/jpeg', 0.6);
+            const idx = out.indexOf(',');
+            return idx >= 0 ? out.slice(idx + 1) : out;
+          } catch {
+            return base64;
+          }
+        };
         const extractDocxPlainText = async (base64: string): Promise<string> => {
           try {
             const mammoth: any = await import('mammoth');
@@ -298,12 +320,13 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         };
 
         // Build single-call decode payload with optional text and images[]
-        const images: Array<{ base64: string; mimeType: string }> = [];
+        let images: Array<{ base64: string; mimeType: string }> = [];
         let textForDecode = question.type === 'text' ? (question.extractedText || question.content) : (question.extractedText || '');
         if (question.fileData?.base64 && question.fileData?.mimeType) {
           const mime = question.fileData.mimeType.toLowerCase();
           if (mime.startsWith('image/')) {
-            images.push({ base64: question.fileData.base64, mimeType: question.fileData.mimeType });
+            const b64 = await compressImageBase64(question.fileData.base64, question.fileData.mimeType);
+            images.push({ base64: b64, mimeType: 'image/jpeg' });
           } else if (mime === 'application/pdf' || question.fileData.name.toLowerCase().endsWith('.pdf')) {
             const imgs = await renderPdfFirstTwoPagesToImages(question.fileData.base64);
             for (const b64 of imgs) images.push({ base64: b64, mimeType: 'image/jpeg' });
@@ -311,6 +334,11 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             const rawText = await extractDocxPlainText(question.fileData.base64);
             if (rawText) textForDecode = rawText;
           }
+        }
+        // When images are present, cap text to keep request small and avoid timeouts; prefer first image to reduce payload
+        if (images.length > 0) {
+          if (textForDecode.length > 4000) textForDecode = textForDecode.slice(0, 4000);
+          if (images.length > 1 && textForDecode.length > 2500) images = images.slice(0, 1);
         }
         const payload: any = {
           text: textForDecode,
