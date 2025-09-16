@@ -362,6 +362,56 @@ export default function App() {
         }
       };
 
+      const restInsertMcqSteps = async (qid: string): Promise<void> => {
+        try {
+          const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+          const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+          let accessToken = '';
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i) || '';
+              if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+                const v = localStorage.getItem(k) || '';
+                const parsed = JSON.parse(v || '{}');
+                accessToken = parsed?.access_token || '';
+                if (accessToken) break;
+              }
+            }
+          } catch {}
+          if (!envUrl || !envAnon) throw new Error('missing supabase env');
+          if (!accessToken) throw new Error('missing access token');
+          const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
+          const rows = mcqs.map((m, i) => ({
+            question_id: qid,
+            step_index: i,
+            prompt: m.question,
+            choices: choicesWithLabels(m.options),
+            correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
+            user_answer: null,
+            is_correct: null,
+            answered_at: null,
+          }));
+          const resp = await fetch(`${envUrl}/rest/v1/mcq_steps`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+              'apikey': envAnon,
+              'Prefer': 'return=minimal',
+            } as any,
+            body: JSON.stringify(rows),
+          });
+          console.log('[persist] REST mcq_steps status', resp.status);
+          if (!resp.ok) {
+            const txt = await resp.text();
+            throw new Error(`rest insert mcq_steps failed ${resp.status}: ${txt}`);
+          }
+        } catch (err) {
+          console.error('[persist] REST insert mcq_steps failed', err);
+          throw err as any;
+        }
+      };
+
       console.log('[persist] inserting into questions...');
       let insertedId: string | undefined;
       if (!hasSessionNow) {
@@ -401,24 +451,32 @@ export default function App() {
       if (questionId) {
         const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
         console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
-        const stepsInsert = supabase.from('mcq_steps').insert(
-          mcqs.map((m, i) => ({
-            question_id: questionId,
-            step_index: i,
-            prompt: m.question,
-            choices: choicesWithLabels(m.options),
-            correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
-            user_answer: null,
-            is_correct: null,
-            answered_at: null,
-          }))
-        );
-        const stepsAbort = new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000));
-        const { error: stepsErr } = (await Promise.race([stepsInsert, stepsAbort])) as any;
-        if (stepsErr) {
-          console.error('[persist] insert mcq_steps failed', { error: stepsErr });
+        if (!hasSessionNow) {
+          await Promise.race([
+            restInsertMcqSteps(questionId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000)),
+          ]);
+          console.log('[persist] saved question + steps (REST)', { questionId, steps: mcqs.length });
         } else {
-          console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
+          const stepsInsert = supabase.from('mcq_steps').insert(
+            mcqs.map((m, i) => ({
+              question_id: questionId,
+              step_index: i,
+              prompt: m.question,
+              choices: choicesWithLabels(m.options),
+              correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
+              user_answer: null,
+              is_correct: null,
+              answered_at: null,
+            }))
+          );
+          const stepsAbort = new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000));
+          const { error: stepsErr } = (await Promise.race([stepsInsert, stepsAbort])) as any;
+          if (stepsErr) {
+            console.error('[persist] insert mcq_steps failed', { error: stepsErr });
+          } else {
+            console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
+          }
         }
       }
       // Refresh DB-backed totals & streak after save
