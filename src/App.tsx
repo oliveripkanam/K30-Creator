@@ -298,10 +298,24 @@ export default function App() {
         const header = headerParts.join(' • ');
         const originalText = String((currentQuestion as any)?.extractedText || (currentQuestion as any)?.content || '').slice(0, 600);
         const items = generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, hint: m.hint }));
-        const res = await fetch('/api/ai-refine-hints', {
+        let res = await fetch('/api/ai-refine-hints', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ header, originalText, subject: (currentQuestion as any)?.subject, syllabus: (currentQuestion as any)?.syllabus, level: (currentQuestion as any)?.level, items })
         });
+        if (res.status === 404) {
+          // Netlify fallback path
+          res = await fetch('/.netlify/functions/ai-refine-hints', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ header, originalText, subject: (currentQuestion as any)?.subject, syllabus: (currentQuestion as any)?.syllabus, level: (currentQuestion as any)?.level, items })
+          });
+          if (res.status === 404) {
+            // Fallback to function file name path
+            res = await fetch('/.netlify/functions/decode-hints', {
+              method: 'POST', headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ header, originalText, subject: (currentQuestion as any)?.subject, syllabus: (currentQuestion as any)?.syllabus, level: (currentQuestion as any)?.level, items })
+            });
+          }
+        }
         if (!res.ok) return;
         const data = await res.json();
         const arr: Array<{ id: string; hint: string }> = Array.isArray(data?.hints) ? data.hints : [];
