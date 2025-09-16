@@ -46,8 +46,11 @@ export default async (req: Request) => {
     level ? `Year/Level: ${level}` : '',
   ].filter(Boolean);
   const userTextRaw = headerParts.length ? `${headerParts.join(' • ')}\n\n${text}` : text;
-  // Trim overly long inputs to keep requests fast and under provider limits
-  const userText = userTextRaw.slice(0, 8000);
+  // Minimal format instruction to avoid prose outputs
+  const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
+  // Trim overly long inputs to keep requests fast and under provider limits, reserving room for formatReq
+  const maxCore = 8000 - formatReq.length;
+  const userText = (userTextRaw.length > maxCore ? userTextRaw.slice(0, Math.max(0, maxCore)) : userTextRaw) + formatReq;
 
   const buildUrl = (endpointValue: string, deploymentName: string, version: string): string => {
     const endpointNoSlash = endpointValue.replace(/\/$/, '');
