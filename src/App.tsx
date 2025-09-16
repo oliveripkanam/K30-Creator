@@ -90,6 +90,7 @@ export default function App() {
   const [hasPersisted, setHasPersisted] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const autoSaveTriggeredRef = useRef<boolean>(false);
+  const [isDashLoading, setIsDashLoading] = useState<boolean>(false);
   // Removed session hydration on refresh by request
 
   // Mock user authentication (fallback)
@@ -504,13 +505,17 @@ export default function App() {
           }
         }
       }
-      // Refresh DB-backed totals & streak after save
-      void refreshDashboardMetrics(user.id);
+      // Refresh DB-backed totals, tokens, and mistakes after save
+      await Promise.all([
+        refreshDashboardMetrics(user.id),
+        refreshTopMistakes(user.id),
+      ]);
       setHasPersisted(true);
     } catch (e) {
       console.warn('persist completion failed', e);
     } finally {
       setIsSaving(false);
+      setIsDashLoading(false);
       if (navigateAfter) setCurrentState('dashboard');
     }
   };
@@ -518,6 +523,7 @@ export default function App() {
   const handleSolutionComplete = async () => {
     // Fire-and-forget save, navigate immediately to avoid UI getting stuck
     void saveCompletion(false);
+    setIsDashLoading(true);
     setCurrentState('dashboard');
   };
 
@@ -844,6 +850,14 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background">
+      {isDashLoading && currentState === 'dashboard' && (
+        <div className="fixed inset-0 z-50 bg-white/80 backdrop-blur-sm flex items-center justify-center">
+          <div className="flex flex-col items-center space-y-3">
+            <div className="w-10 h-10 rounded-full border-4 border-blue-200 border-t-blue-600 animate-spin" />
+            <p className="text-sm text-blue-700">Updating your dashboard…</p>
+          </div>
+        </div>
+      )}
       {renderCurrentState()}
     </div>
   );
