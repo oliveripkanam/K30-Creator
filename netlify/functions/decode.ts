@@ -474,6 +474,49 @@ export default async (req: Request) => {
     // Enforce exactly 'marks' MCQs (server-side)
     ensured.mcqs = (ensured.mcqs || []);
     ensured.mcqs = ensured.mcqs.slice(0, marks);
+
+    // Optional: refine hints to be specific and concept-aware, avoiding generic phrasing
+    const looksGeneric = (s: string) => /choose one clear|underline what is asked|choose the option|think about|consider|recall the syllabus/i.test(String(s || ''));
+    try {
+      const items = ensured.mcqs.map((m: any, i: number) => ({
+        idx: i,
+        question: String(m.question || '').slice(0, 160),
+        hint: String(m.hint || '').slice(0, 140),
+      }));
+      const refineMsg = [
+        { type: 'text', text: `${headerParts.join(' • ')}`.slice(0, 120) },
+        { type: 'text', text: `Original text (trimmed):\n${userTextRaw.slice(0, 400)}` },
+        { type: 'text', text: `Rewrite each hint to be specific and actionable. Rules:\n- Reference the stem concept in the question (use the key term).\n- Do NOT reveal the answer. Avoid generic or meta phrasing.\n- Keep 9–18 words. Start with 'Hint: '.\nInput: ${JSON.stringify(items)}` }
+      ];
+      const refineRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          response_format: { type: 'text' },
+          temperature: 0.1,
+          messages: [ { role: 'user', content: refineMsg } ]
+        })
+      });
+      if (refineRes.ok) {
+        const rd = await refineRes.json();
+        const content2 = rd?.choices?.[0]?.message?.content || '';
+        let refined: any = null;
+        try { refined = JSON.parse(content2); } catch { const m = content2.match(/\{[\s\S]*\}/); if (m) { try { refined = JSON.parse(m[0]); } catch {} } }
+        const arr: string[] = Array.isArray(refined?.hints) ? refined.hints : [];
+        if (arr.length === ensured.mcqs.length) {
+          ensured.mcqs = ensured.mcqs.map((m: any, i: number) => {
+            const cand = String(arr[i] || '').trim().slice(0, 160);
+            if (cand && !looksGeneric(cand)) {
+              return { ...m, hint: cand };
+            }
+            // If original was generic, prefer candidate even if similar length
+            if (looksGeneric(m.hint) && cand) return { ...m, hint: cand };
+            return m;
+          });
+        }
+      }
+    } catch {}
+
     return respond(200, { ...ensured, usage });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}

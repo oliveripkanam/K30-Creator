@@ -125,7 +125,14 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
     if (fromQ) return fromQ;
     const fromOpts = deriveHintFromOptions(mcq);
     if (fromOpts) return fromOpts;
-    return 'Underline what is asked, list knowns, then choose the relation that links them.';
+    // Non-generic fallback: echo stem concept without revealing answer
+    const stem = String(mcq.question || '').replace(/\s+/g, ' ').trim();
+    const m = stem.match(/what is (?:the |an )?([^?]+?)\?/i) || stem.match(/which of the following.*?\?/i) || stem.match(/define ([^?]+?)\?/i);
+    if (m && m[1]) {
+      const concept = m[1].trim();
+      return `Hint: recall the syllabus meaning of “${concept}” and select the matching statement.`;
+    }
+    return 'Hint: focus on the key term in the question and recall its syllabus definition.';
   };
 
   const improveHints = (mcqs: MCQ[], q: Question): MCQ[] => {
