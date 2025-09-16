@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
 import { MechanicsRadarChart } from './RadarChart';
+import { supabase } from '../lib/supabase';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 interface MistakeType {
@@ -35,12 +36,106 @@ interface DashboardProps {
   onStartDecoding: () => void;
   onViewHistory: () => void;
   onLogout: () => void;
-  onFilterMistakes?: (filters?: { subject?: string; syllabus?: string; year?: string }) => void;
 }
 
-export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onFilterMistakes }: DashboardProps) {
-  const [mistakeFilterMode, setMistakeFilterMode] = React.useState<'all' | 'subject' | 'syllabus' | 'year'>('all');
-  const [mistakeFilterValue, setMistakeFilterValue] = React.useState('');
+// Small sparkline component that queries last 10 decodes and computes accuracy
+function TrendSparkline({ userId }: { userId: string }) {
+  const [points, setPoints] = React.useState<Array<{ x: number; y: number; label: string }>>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true); setError(null);
+      try {
+        // 1) Fetch last 10 questions for this user
+        const { data: qRows, error: qErr } = await supabase
+          .from('questions')
+          .select('id, decoded_at, marks, time_spent_minutes, tokens_earned')
+          .eq('user_id', userId)
+          .order('decoded_at', { ascending: false })
+          .limit(10);
+        if (qErr) throw qErr;
+        const questions = qRows || [];
+        if (questions.length === 0) { if (!cancelled) { setPoints([]); setLoading(false); } return; }
+
+        const ids = questions.map((q: any) => q.id);
+        // 2) Fetch steps for those questions
+        const { data: sRows, error: sErr } = await supabase
+          .from('mcq_steps')
+          .select('question_id, is_correct, user_answer, correct_label')
+          .in('question_id', ids);
+        if (sErr) throw sErr;
+        const steps = sRows || [];
+
+        // 3) Group and compute accuracy per question in chronological order (oldest→newest for sparkline)
+        const byQ = new Map<string, any[]>();
+        for (const s of steps) {
+          const arr = byQ.get(s.question_id) || []; arr.push(s); byQ.set(s.question_id, arr);
+        }
+        const chronological = [...questions].sort((a: any, b: any) => new Date(a.decoded_at).getTime() - new Date(b.decoded_at).getTime());
+        const computed = chronological.map((q: any, idx: number) => {
+          const list = byQ.get(q.id) || [];
+          const total = list.length || 1;
+          let correct = 0;
+          for (const s of list) {
+            const isTrue = s.is_correct === true || (s.user_answer && s.correct_label && String(s.user_answer).toUpperCase() === String(s.correct_label).toUpperCase());
+            if (isTrue) correct += 1;
+          }
+          const acc = Math.round((correct / total) * 100);
+          const label = `${new Date(q.decoded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} • ${acc}% • ${q.marks || 0} marks • ${q.time_spent_minutes || 0} min • ${q.tokens_earned || 0} tokens`;
+          return { x: idx, y: acc, label };
+        });
+        if (!cancelled) setPoints(computed);
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || 'Failed to load trend');
+      } finally { if (!cancelled) setLoading(false); }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  if (loading) {
+    return <div className="text-sm text-muted-foreground">Loading trend…</div>;
+  }
+  if (error) {
+    return <div className="text-sm text-red-600">{error}</div>;
+  }
+  if (points.length < 2) {
+    return (
+      <div className="p-4 bg-muted/50 rounded border text-sm text-muted-foreground">
+        A trend will appear when you’ve completed a couple of decodes.
+      </div>
+    );
+  }
+
+  // Render a simple SVG sparkline
+  const width = 600; const height = 100; const padding = 12;
+  const xs = points.map((p, i) => padding + (i * (width - 2 * padding)) / (points.length - 1));
+  const ys = points.map(p => padding + (height - 2 * padding) * (1 - p.y / 100));
+  const path = xs.map((x, i) => `${i === 0 ? 'M' : 'L'} ${x},${ys[i]}`).join(' ');
+
+  return (
+    <div className="overflow-x-auto">
+      <svg width={width} height={height} className="min-w-[600px]">
+        <path d={path} fill="none" stroke="#2563eb" strokeWidth={2} />
+        {xs.map((x, i) => (
+          <g key={i}>
+            <circle cx={x} cy={ys[i]} r={3} fill="#2563eb">
+              <title>{points[i].label}</title>
+            </circle>
+          </g>
+        ))}
+        {/* y-axis labels */}
+        <text x={4} y={padding + 4} fontSize="10" fill="#64748b">100%</text>
+        <text x={4} y={height - padding} fontSize="10" fill="#64748b">0%</text>
+      </svg>
+    </div>
+  );
+}
+
+export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: DashboardProps) {
   const streakGoal = 30;
   const nextMilestone = Math.ceil(user.questionsDecoded / 10) * 10;
   const progressToNextMilestone = ((user.questionsDecoded % 10) / 10) * 100;
@@ -55,13 +150,15 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onFi
     { topic: "Oscillations", proficiency: 72, maxScore: 100 }
   ];
 
-  // Get top 3 most common mistakes
-  const topMistakes = user.commonMistakes
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 3);
+  // Trend sparkline data (to be fed from API soon; temporary derived from user totals if needed)
+  // Inline mini component for sparkline; query will be added in App and passed via context later if needed
+  const TrendSparkline: any = () => null as any;
+  TrendSparkline.Definitions = () => null as any;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+      {/* Trend sparkline component (local) */}
+      <TrendSparkline.Definitions />
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
@@ -237,79 +334,14 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onFi
           </Card>
         </div>
 
-        {/* Common Mistakes Section */}
+        {/* Recent Performance Trend */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center space-x-2">
-                <svg className="w-5 h-5 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-                <span>Top 3 Common Mistakes</span>
-              </CardTitle>
-              <div className="flex items-center space-x-2">
-                <select className="border rounded px-2 py-1 text-sm" value={mistakeFilterMode} onChange={(e) => setMistakeFilterMode(e.target.value as any)}>
-                  <option value="all">All</option>
-                  <option value="subject">By Subject</option>
-                  <option value="syllabus">By Syllabus</option>
-                  <option value="year">By Year</option>
-                </select>
-                {mistakeFilterMode !== 'all' && (
-                  <input className="border rounded px-2 py-1 text-sm" placeholder={mistakeFilterMode === 'subject' ? 'e.g., Chemistry' : mistakeFilterMode === 'syllabus' ? 'e.g., A-Level, IB' : 'e.g., Year 8'} value={mistakeFilterValue} onChange={(e) => setMistakeFilterValue(e.target.value)} />
-                )}
-              </div>
-            </div>
-            <CardDescription>Areas that need your attention</CardDescription>
+            <CardTitle>Recent Performance Trend</CardTitle>
+            <CardDescription>Accuracy per decode (last 10)</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {topMistakes.map((mistake, index) => (
-                <div key={mistake.id} className="p-4 rounded-lg border border-orange-200 bg-orange-50/50">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-orange-200 flex items-center justify-center text-sm font-medium text-orange-800">
-                        {index + 1}
-                      </span>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
-                          {mistake.category}
-                        </Badge>
-                        { (mistake as any).syllabus && (
-                          <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
-                            {(mistake as any).syllabus}
-                          </Badge>
-                        )}
-                        { (mistake as any).year && (
-                          <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
-                            {(mistake as any).year}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-xs font-medium text-orange-600 bg-orange-100 px-2 py-1 rounded-full">
-                      {mistake.count}x
-                    </span>
-                  </div>
-                  <p className="text-sm text-orange-800 mb-3 leading-relaxed">{mistake.description}</p>
-                  <div className="flex items-center text-xs text-orange-600">
-                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Last seen: {mistake.lastOccurred.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="flex items-start space-x-2">
-                <svg className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-xs text-blue-700">
-                  Focus on these patterns during your next problem-solving sessions. AI will help you avoid these mistakes.
-                </p>
-              </div>
-            </div>
+            <TrendSparkline userId={user.id} />
           </CardContent>
         </Card>
 

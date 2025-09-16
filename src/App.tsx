@@ -786,7 +786,6 @@ export default function App() {
             onStartDecoding={() => setCurrentState('input')}
             onViewHistory={() => setCurrentState('history')}
             onLogout={handleLogout}
-            onFilterMistakes={(filters) => void refreshTopMistakes(user!.id, filters)}
           />
         );
       case 'input':
