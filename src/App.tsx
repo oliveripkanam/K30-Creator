@@ -442,6 +442,10 @@ export default function App() {
             time_spent_minutes: timeSpent,
             tokens_earned: tokensEarned,
             solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
+            // persist provenance for focus-area views
+            subject: (currentQuestion as any)?.subject || null,
+            syllabus: (currentQuestion as any)?.syllabus || null,
+            year: (currentQuestion as any)?.level || null,
           })
           .select('id')
           .single();
@@ -721,29 +725,7 @@ export default function App() {
         }
       } catch {}
 
-      // Record a mistake row only when incorrect. Category from subject/level if present
-      if (isCorrect === false && user) {
-        const subject = (currentQuestion as any)?.subject || '';
-        const syllabus = (currentQuestion as any)?.syllabus || '';
-        const level = (currentQuestion as any)?.level || '';
-        const yearNorm = normalizeYear(level);
-        const category = subject || yearNorm || 'General';
-        const description = (entry.explanation || entry.question || '').toString().slice(0, 180) || 'Incorrect step';
-        try {
-          if (!hasSessionNow) {
-            const token = accessFromLocal();
-            await fetch(`${envUrl}/rest/v1/mistakes`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': envAnon, 'Prefer': 'return=minimal' } as any,
-              body: JSON.stringify({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString(), subject, syllabus, year: yearNorm }),
-            });
-          } else {
-            await supabase
-              .from('mistakes')
-              .insert({ user_id: user.id, category, description, count: 1, last_occurred: new Date().toISOString(), subject, syllabus, year: yearNorm });
-          }
-        } catch {}
-      }
+      // We no longer write to the `mistakes` table; focus areas are computed from mcq_steps + questions views.
     }
 
     // Refresh dashboard mistakes
