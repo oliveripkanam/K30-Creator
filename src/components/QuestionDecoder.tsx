@@ -82,10 +82,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         // Helpers for PDF (first 2 pages) and DOCX (plain text)
         const renderPdfFirstTwoPagesToImages = async (base64: string): Promise<string[]> => {
           try {
-            const [{ getDocument, GlobalWorkerOptions }, workerUrl] = await Promise.all([
-              import('pdfjs-dist/build/pdf'),
-              import('pdfjs-dist/build/pdf.worker.min.js?url').then((m: any) => m.default || m)
-            ]);
+            const { getDocument, GlobalWorkerOptions }: any = await import('pdfjs-dist');
+            const workerUrl = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString();
             (GlobalWorkerOptions as any).workerSrc = workerUrl;
             const raw = atob(base64);
             const len = raw.length;
@@ -117,7 +115,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         };
         const extractDocxPlainText = async (base64: string): Promise<string> => {
           try {
-            const mammoth: any = await import('mammoth/mammoth.browser');
+            const mammoth: any = await import('mammoth');
             // Convert base64 -> ArrayBuffer
             const binary = atob(base64);
             const buf = new ArrayBuffer(binary.length);
