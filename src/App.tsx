@@ -84,6 +84,7 @@ export default function App() {
   const [solutionSummary, setSolutionSummary] = useState<SolutionSummary | null>(null);
   const [completedQuestions, setCompletedQuestions] = useState<CompletedQuestion[]>([]);
   const [questionStartTime, setQuestionStartTime] = useState<Date | null>(null);
+  const [hasPersisted, setHasPersisted] = useState<boolean>(false);
   // Removed session hydration on refresh by request
 
   // Mock user authentication (fallback)
@@ -240,6 +241,7 @@ export default function App() {
     setSolutionSummary(solution);
     setCurrentMCQIndex(0);
     setCurrentState('mcq');
+    setHasPersisted(false);
     // Reset review data store for this session
     try {
       (window as any).__k30_answerLog = [];
@@ -251,85 +253,103 @@ export default function App() {
     setCurrentState('solution');
   };
 
-  const handleSolutionComplete = () => {
-    if (user && currentQuestion && solutionSummary && questionStartTime) {
-      const timeSpent = Math.round((new Date().getTime() - questionStartTime.getTime()) / (1000 * 60));
-      const tokensEarned = calculateTokens(currentQuestion.marks, mcqs.length, timeSpent);
-      
-      const completedQuestion: CompletedQuestion = {
-        ...currentQuestion,
-        completedAt: new Date(),
-        tokensEarned,
-        mcqsGenerated: mcqs.length,
-        timeSpent,
-        solutionSummary
-      };
-      
-      setCompletedQuestions(prev => [completedQuestion, ...prev]);
-      
-      setUser({
-        ...user,
-        questionsDecoded: user.questionsDecoded + 1,
-        // Do not locally bump streak; server will compute real streak
-        currentStreak: user.currentStreak,
-        totalMarks: user.totalMarks + currentQuestion.marks,
-        tokens: user.tokens + tokensEarned
-      });
+  const saveCompletion = async (navigateAfter: boolean) => {
+    if (!(user && currentQuestion && solutionSummary && questionStartTime)) return;
+    const timeSpent = Math.round((new Date().getTime() - questionStartTime.getTime()) / (1000 * 60));
+    const tokensEarned = calculateTokens(currentQuestion.marks, mcqs.length, timeSpent);
 
-      // Persist to Supabase (fire-and-forget)
-      void (async () => {
-        try {
-          const { data: sess } = await supabase.auth.getSession();
-          console.log('[persist] start', { hasSession: !!sess?.session, userId: user.id });
-          const { data: inserted, error } = await supabase
-            .from('questions')
-            .insert({
-              user_id: user.id,
-              source_type: currentQuestion.type,
-              marks: currentQuestion.marks,
-              original_input: currentQuestion.content,
-              extracted_text: currentQuestion.extractedText ?? null,
-              decoded_at: new Date().toISOString(),
-              time_spent_minutes: timeSpent,
-              tokens_earned: tokensEarned,
-              solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
-            })
-            .select('id')
-            .single();
-          if (error) {
-            console.error('[persist] insert questions failed', { error });
-            throw error;
-          }
-          const questionId = inserted?.id;
-          if (questionId) {
-            const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
-            const { error: stepsErr } = await supabase.from('mcq_steps').insert(
-              mcqs.map((m, i) => ({
-                question_id: questionId,
-                step_index: i,
-                prompt: m.question,
-                choices: choicesWithLabels(m.options),
-                correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
-                user_answer: null,
-                is_correct: null,
-                answered_at: null,
-              }))
-            );
-            if (stepsErr) {
-              console.error('[persist] insert mcq_steps failed', { error: stepsErr });
-            } else {
-              console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
-            }
-          }
-          // Refresh DB-backed totals & streak after save
-          void refreshDashboardMetrics(user.id);
-        } catch (e) {
-          console.warn('persist completion failed', e);
-        }
-      })();
+    // If already persisted, just navigate if requested
+    if (hasPersisted) {
+      if (navigateAfter) setCurrentState('dashboard');
+      return;
     }
-    setCurrentState('dashboard');
+
+    console.log('[persist] auto-save starting');
+
+    const completedQuestion: CompletedQuestion = {
+      ...currentQuestion,
+      completedAt: new Date(),
+      tokensEarned,
+      mcqsGenerated: mcqs.length,
+      timeSpent,
+      solutionSummary
+    };
+
+    setCompletedQuestions(prev => [completedQuestion, ...prev]);
+
+    setUser({
+      ...user,
+      questionsDecoded: user.questionsDecoded + 1,
+      // Do not locally bump streak; server will compute real streak
+      currentStreak: user.currentStreak,
+      totalMarks: user.totalMarks + currentQuestion.marks,
+      tokens: user.tokens + tokensEarned
+    });
+
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      console.log('[persist] start', { hasSession: !!sess?.session, userId: user.id });
+      const { data: inserted, error } = await supabase
+        .from('questions')
+        .insert({
+          user_id: user.id,
+          source_type: currentQuestion.type,
+          marks: currentQuestion.marks,
+          original_input: currentQuestion.content,
+          extracted_text: currentQuestion.extractedText ?? null,
+          decoded_at: new Date().toISOString(),
+          time_spent_minutes: timeSpent,
+          tokens_earned: tokensEarned,
+          solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
+        })
+        .select('id')
+        .single();
+      if (error) {
+        console.error('[persist] insert questions failed', { error });
+        throw error;
+      }
+      const questionId = inserted?.id;
+      if (questionId) {
+        const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
+        const { error: stepsErr } = await supabase.from('mcq_steps').insert(
+          mcqs.map((m, i) => ({
+            question_id: questionId,
+            step_index: i,
+            prompt: m.question,
+            choices: choicesWithLabels(m.options),
+            correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
+            user_answer: null,
+            is_correct: null,
+            answered_at: null,
+          }))
+        );
+        if (stepsErr) {
+          console.error('[persist] insert mcq_steps failed', { error: stepsErr });
+        } else {
+          console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
+        }
+      }
+      // Refresh DB-backed totals & streak after save
+      void refreshDashboardMetrics(user.id);
+      setHasPersisted(true);
+    } catch (e) {
+      console.warn('persist completion failed', e);
+    } finally {
+      if (navigateAfter) setCurrentState('dashboard');
+    }
   };
+
+  const handleSolutionComplete = async () => {
+    await saveCompletion(true);
+  };
+
+  useEffect(() => {
+    if (currentState === 'solution' && !hasPersisted) {
+      // Fire auto-save on entering summary
+      void saveCompletion(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentState]);
 
   // Fetch totals (questions, marks, tokens) and true daily streak from DB
   const refreshDashboardMetrics = async (userId: string) => {
