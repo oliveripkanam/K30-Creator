@@ -183,7 +183,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
-            {/* Subject/Syllabus/Level */}
+            {/* Subject / Syllabus / Year */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="subject">Subject</Label>
@@ -206,10 +206,10 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
                 />
               </div>
               <div>
-                <Label htmlFor="level">Level</Label>
+                <Label htmlFor="level">Year / Level</Label>
                 <Input
                   id="level"
-                  placeholder="e.g., A-Level, GCSE, IB HL, University"
+                  placeholder="e.g., Year 8, Form 2, Grade 7, A-Level, GCSE, IB HL"
                   value={level}
                   onChange={(e) => setLevel(e.target.value)}
                   className="mt-2"

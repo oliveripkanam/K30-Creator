@@ -57,10 +57,11 @@ export default async (req: Request) => {
     : 'A-Level mechanics';
 
   const system = `You rewrite OCR output of ${scope} problems into a clean, single-block statement suitable for solving.
-- Use diagram/image (if provided) to recover numeric labels and relationships.
-- Normalize fractions and units: join stacked lines (5/12, 12mg/5), keep symbols where present.
-- Remove headings like "Figure 1", stray labels (A, B) unless referenced, and page numbers.
-- Output ONLY the final cleaned problem text. No explanations.`;
+If a year/level is provided (e.g., Year 8, Grade 7, Form 2, A‑Level), keep the wording but do not invent content.
+Use diagram/image (if provided) to recover numeric labels and relationships.
+Normalize fractions and units: join stacked lines (5/12, 12mg/5), keep symbols where present.
+Remove headings like "Figure 1", stray labels (A, B) unless referenced, and page numbers.
+Output ONLY the final cleaned problem text. No explanations.`;
 
   const userText = `OCR text:\n${text}`;
   const contentPayload: any = (imageBase64 && imageMimeType && /^image\//i.test(imageMimeType))

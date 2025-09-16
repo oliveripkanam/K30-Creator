@@ -52,7 +52,7 @@ solution fields: finalAnswer, unit, workingSteps[], keyFormulas[].
 Questions MUST directly progress toward the final answer for THIS problem.`;
 
   const contextLine = (subject || syllabus || level)
-    ? `Subject: ${subject || 'N/A'}; Syllabus: ${syllabus || 'N/A'}; Level: ${level || 'N/A'}.`
+    ? `Subject: ${subject || 'N/A'}; Syllabus/Board: ${syllabus || 'N/A'}; Year/Level: ${level || 'N/A'}.`
     : `Domain: A-Level mechanics.`;
   const userText = `${contextLine}\n\nProblem text:\n${text}\n\nTarget number of steps (marks): ${marks}.\nIf an image is attached, use it only to disambiguate geometry/labels. Output JSON ONLY (no prose).`;
 
