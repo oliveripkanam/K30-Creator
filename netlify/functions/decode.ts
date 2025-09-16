@@ -85,8 +85,8 @@ export default async (req: Request) => {
     }
     const hasImage = baseContent.some((p) => p?.type === 'image_url');
 
-    // STEP 1: Extract concise structured givens/relations JSON
-    const parseInstruction = `\n\nReturn ONLY JSON with keys: givens (array of short strings), relations (array of short equations/constraints), target (string), constants (array), notes (string). No prose.`;
+    // STEP 1: Extract concise structured givens/relations JSON + a step plan of length 'marks'
+    const parseInstruction = `\n\nReturn ONLY JSON with keys: quantities (array of {name,symbol?,value?,unit?,known:boolean,type:'numeric'|'symbolic'}), relations (array of equation/constraint strings), targets (array of strings), constraints (array of short strings), context (string), plan (array of exactly ${marks} items where each item is {step:number, goal:'select relation'|'resolve components'|'balance forces'|'substitute & evaluate'|'compute next quantity'|'derive formula', mustProduce:'number'|'formula'|'choice', note?:string}). No prose.`;
     const parseRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -105,8 +105,8 @@ export default async (req: Request) => {
     }
     if (!parsedSummary) parsedSummary = { givens: [], relations: [], target: '', constants: [], notes: '' };
 
-    // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision)
-    const genInstruction = `\n\nUsing the ProblemSummary below, generate EXACTLY ${marks} MCQs that lead the learner step-by-step to the solution. Each mcq must have: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step. Also return a solution object with finalAnswer, unit, workingSteps[], keyFormulas[]. Return ONLY JSON { mcqs: [...], solution: {...} }.`;
+    // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
+    const genInstruction = `\n\nUsing the ProblemSummary below, generate EXACTLY ${marks} MCQs that lead the learner step-by-step to the solution. Follow the plan if provided. Rules:\n- Each MCQ must have: id, question, options (exactly 4), correctAnswer (0-based), hint, explanation, step.\n- Options MUST be concrete numbers with units or explicit formulas/relations; DO NOT use meta-options like 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Questions MUST require a calculation, relation selection, component resolution, or formula derivation — NOT recalling givens from the statement.\n- Hints MUST name the specific relation (e.g., 'Apply F = ma along the plane; include μN and mg sinα.').\n- Explanation MUST show the governing relation and a short substitution/calculation.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
     const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 3500)}` }, { type: 'text', text: genInstruction } ];
     // Also include the original text (trimmed) to preserve context
     genContent.unshift({ type: 'text', text: (userTextRaw.length > 4000 ? userTextRaw.slice(0, 4000) : userTextRaw) });
@@ -374,6 +374,49 @@ export default async (req: Request) => {
       parsed = { mcqs: salvagedMcqs, solution: safeSolution } as any;
     }
     const ensured = (parsed as any) as { mcqs: any[]; solution: any };
+    // Server-side validator to drop low-quality items and request replacements if needed
+    const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
+    const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement/i.test(q);
+    if (Array.isArray(ensured.mcqs)) {
+      ensured.mcqs = ensured.mcqs.filter((m: any) => {
+        const q = String(m?.question || '');
+        const opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : [];
+        if (isRecallQuestion(q)) return false;
+        if (opts.length !== 4) return false;
+        if (opts.some((o: string) => isMetaOption(o))) return false;
+        return true;
+      });
+    }
+    if (!Array.isArray(ensured.mcqs)) ensured.mcqs = [];
+    if ((ensured.mcqs as any[]).length < marks) {
+      try {
+        const missing = Math.max(0, marks - (ensured.mcqs as any[]).length);
+        const badNote = 'Replace invalid or missing steps. Rules: no recall questions, options must be numeric or formula, provide hint naming the relation and an explanation with substitution.';
+        const replContent: any[] = [
+          { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 3000)}` },
+          { type: 'text', text: `Generate ONLY ${missing} MCQs continuing the plan. ${badNote}` }
+        ];
+        if (hasImage) {
+          for (let i = 0; i < Math.min(2, images.length); i++) {
+            const img = images[i];
+            replContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
+          }
+        }
+        const replRes = await fetch(url, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+          body: JSON.stringify({ response_format: { type: 'text' }, temperature: 0.1, messages: [ { role: 'user', content: replContent } ] })
+        });
+        if (replRes.ok) {
+          const rd = await replRes.json();
+          const rc = rd?.choices?.[0]?.message?.content || '';
+          try {
+            const rj = JSON.parse(rc) || {};
+            const add = Array.isArray(rj.mcqs) ? rj.mcqs : [];
+            ensured.mcqs = [ ...ensured.mcqs, ...add ].slice(0, marks);
+          } catch {}
+        }
+      } catch {}
+    }
     dbg('success parse', { mcqs: ensured?.mcqs?.length, hasSolution: !!ensured?.solution, usage });
 
     // Do not top-up here; step2 was instructed to return exactly 'marks'
