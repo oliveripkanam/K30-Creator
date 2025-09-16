@@ -696,9 +696,11 @@ export default function App() {
         }
       } catch {}
 
-      // Record a mistake row only when incorrect
+      // Record a mistake row only when incorrect. Category from subject/level if present
       if (isCorrect === false && user) {
-        const category = (currentQuestion as any)?.subject || 'General';
+        const subject = (currentQuestion as any)?.subject || '';
+        const level = (currentQuestion as any)?.level || '';
+        const category = subject || level || 'General';
         const description = (entry.explanation || entry.question || '').toString().slice(0, 180) || 'Incorrect step';
         try {
           if (!hasSessionNow) {
@@ -858,7 +860,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background">
       {isDashLoading && currentState === 'dashboard' && (
-        <div className="fixed inset-0 z-50 bg-white/95 flex items-center justify-center">
+        <div className="fixed inset-0 z-50 bg-white flex items-center justify-center select-none" role="status" aria-busy="true">
           <div className="flex flex-col items-center space-y-3">
             <div className="w-10 h-10 rounded-full border-4 border-black/20 border-t-black animate-spin" />
             <p className="text-sm text-black">Updating your dashboard…</p>
