@@ -267,6 +267,23 @@ export default function App() {
     return () => { sub.subscription.unsubscribe(); };
   }, []);
 
+  // Keep dashboard streak/totals in sync with decode events and focus changes
+  useEffect(() => {
+    const onRefresh = () => { if (user?.id) void refreshDashboardMetrics(user.id); };
+    window.addEventListener('k30:streaks:refresh', onRefresh);
+    window.addEventListener('k30:history:refresh', onRefresh);
+    const onVis = () => { if (document.visibilityState === 'visible') onRefresh(); };
+    const onFocus = () => onRefresh();
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.removeEventListener('k30:streaks:refresh', onRefresh);
+      window.removeEventListener('k30:history:refresh', onRefresh);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [user?.id]);
+
   // Minimal hydration on initial load or OAuth callback redirect
   useEffect(() => {
     let cancelled = false;
