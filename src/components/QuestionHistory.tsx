@@ -416,7 +416,7 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {question.timeSpent || 0} min · {question.mcqsGenerated || 0} MCQs
+                        {(() => { const t=Math.max(0,Math.round(((question.timeSpent||0))*60)); const m=Math.floor(t/60); const s=t%60; return m<=0?`${s}s`:`${m} min ${s}s`; })()} · {question.mcqsGenerated || 0} MCQs
                       </p>
                     </div>
                   </div>

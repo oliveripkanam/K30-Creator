@@ -88,7 +88,10 @@ function TrendSparkline({ userId }: { userId: string }) {
             if (isTrue) correct += 1;
           }
           const acc = Math.round((correct / total) * 100);
-          const label = `${new Date(q.decoded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} • ${acc}% • ${q.marks || 0} marks • ${q.time_spent_minutes || 0} min • ${q.tokens_earned || 0} tokens`;
+          const secs = Math.max(0, Math.round((q.time_spent_minutes || 0) * 60));
+          const mm = Math.floor(secs / 60); const ss = secs % 60;
+          const timeFmt = mm <= 0 ? `${ss}s` : `${mm} min ${ss}s`;
+          const label = `${new Date(q.decoded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} • ${acc}% • ${q.marks || 0} marks • ${timeFmt} • ${q.tokens_earned || 0} tokens`;
           return { x: idx, y: acc, label };
         });
         if (!cancelled) setPoints(computed);

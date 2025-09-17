@@ -83,6 +83,14 @@ const SparklineChart: React.FC<{
   data: DecodeAttempt[];
   compact?: boolean;
 }> = ({ data, compact = false }) => {
+  const formatDurationFromMinutes = (mins: number): string => {
+    const totalSeconds = Math.max(0, Math.round((mins || 0) * 60));
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    if (m <= 0) return `${s}s`;
+    if (s === 0) return `${m} min 0s`;
+    return `${m} min ${s}s`;
+  };
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   const [containerRef, setContainerRef] = useState<HTMLDivElement | null>(null);
   const height = compact ? 160 : 240;
@@ -113,14 +121,8 @@ const SparklineChart: React.FC<{
 
   const pathData = points.length > 1 ? `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}` : '';
 
-  const xTicks = data.length > 1 ? 
-    Array.from({ length: Math.min(6, data.length) }, (_, i) => {
-      const dataIndex = Math.floor((i * (data.length - 1)) / Math.max(Math.min(6, data.length) - 1, 1));
-      return {
-        x: padding.left + (dataIndex * chartWidth) / Math.max(data.length - 1, 1),
-        label: data[dataIndex]?.date.split(',')[0] || ''
-      };
-    }) : [];
+  // x-axis hidden per request → no ticks/labels
+  const xTicks: Array<{ x: number; label: string }> = [];
 
   return (
     <div 
@@ -137,14 +139,7 @@ const SparklineChart: React.FC<{
         <rect width="100%" height={height} fill="url(#grid)" opacity="0.5" />
         <text x={padding.left - 10} y={padding.top + 5} className="text-xs fill-gray-500 text-anchor-end">100%</text>
         <text x={padding.left - 10} y={height - padding.bottom + 5} className="text-xs fill-gray-500 text-anchor-end">0%</text>
-        <line 
-          x1={padding.left} 
-          y1={height - padding.bottom} 
-          x2={containerWidth - padding.right} 
-          y2={height - padding.bottom} 
-          stroke="#e5e7eb" 
-          strokeWidth="1"
-        />
+        {/* x-axis hidden */}
         <line 
           x1={padding.left} 
           y1={padding.top} 
@@ -219,7 +214,7 @@ const SparklineChart: React.FC<{
                   <div className="bg-white border border-gray-200 rounded-lg p-2 shadow-lg text-xs">
                     <div className="font-medium">{point.data.date}</div>
                     <div className="text-gray-600">
-                      {point.data.accuracy}% • {point.data.marks} marks • {point.data.timeSpentMinutes} min • {point.data.tokensEarned} tokens
+                      {point.data.accuracy}% • {point.data.marks} marks • {formatDurationFromMinutes(point.data.timeSpentMinutes)} • {point.data.tokensEarned} tokens
                     </div>
                   </div>
                 </foreignObject>
@@ -255,7 +250,7 @@ const RecentListItem: React.FC<{
           <span className="text-gray-600">{decode.marks} marks</span>
         </div>
         <div className="text-xs text-gray-500 mt-1">
-          Accuracy {decode.accuracy}% • {decode.timeSpentMinutes} min • {decode.tokensEarned} tokens
+          Accuracy {decode.accuracy}% • {(() => { const t=Math.max(0,Math.round((decode.timeSpentMinutes||0)*60)); const m=Math.floor(t/60); const s=t%60; return m<=0?`${s}s`:`${m} min ${s}s`; })()} • {decode.tokensEarned} tokens
         </div>
       </div>
       <div className="flex items-center gap-2">
@@ -393,7 +388,7 @@ export const RecentPerformanceCard: React.FC<RecentPerformanceCardProps> = ({
         <KPIChip
           icon={<Clock className="w-4 h-4" />}
           label="Median Time"
-          value={`${safeAggregates.medianTime} min`}
+          value={`${Math.floor(Math.max(0, Math.round((safeAggregates.medianTime || 0) * 60)) / 60)} min ${Math.max(0, Math.round((safeAggregates.medianTime || 0) * 60)) % 60}s`}
         />
       </div>
 
