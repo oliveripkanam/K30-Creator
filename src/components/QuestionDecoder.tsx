@@ -307,33 +307,34 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           syllabus: question.syllabus,
           level: question.level,
         };
-        let res = await fetch('/api/ai-decode', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        console.log('[decoder] /api/ai-decode status', res.status);
-        // Keep only primary path and one Netlify fallback
-        if (res.status === 404 || res.status >= 500) {
-          console.log('[decoder] trying /.netlify/functions/ai-decode');
-          res = await fetch('/.netlify/functions/ai-decode', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
-          // Final retry: small backoff and text-only to reduce payload
-          if (!res.ok && res.status >= 500) {
-            try { await new Promise(r => setTimeout(r, 600)); } catch {}
-            const textOnly = { ...payload, images: undefined } as any;
-            console.log('[decoder] retrying functions text-only');
-            res = await fetch('/.netlify/functions/ai-decode', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(textOnly)
-            });
-            console.log('[decoder] functions text-only status', res.status);
-          }
+        // Prefer functions endpoints with short client timeouts to avoid hanging at the edge
+        const fetchWithTimeout = async (url: string, body: any, ms: number) => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), ms);
+          try {
+            return await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal });
+          } finally { clearTimeout(timer); }
+        };
+
+        let res = await fetchWithTimeout('/.netlify/functions/ai-decode', payload, 10000).catch(() => new Response(null, { status: 599 }));
+        console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
+        if (!res.ok) {
+          const alt = await fetchWithTimeout('/.netlify/functions/decode', payload, 10000).catch(() => new Response(null, { status: 599 }));
+          console.log('[decoder] /.netlify/functions/decode status', alt.status);
+          if (alt.ok) res = alt;
+        }
+        if (!res.ok) {
+          const api = await fetchWithTimeout('/api/ai-decode', payload, 10000).catch(() => new Response(null, { status: 599 }));
+          console.log('[decoder] /api/ai-decode status', api.status);
+          if (api.ok) res = api; else res = api;
+        }
+        // Final retry: text-only and short backoff
+        if (!res.ok && res.status >= 500) {
+          try { await new Promise(r => setTimeout(r, 600)); } catch {}
+          const textOnly = { ...payload, images: undefined } as any;
+          const rt = await fetchWithTimeout('/.netlify/functions/ai-decode', textOnly, 10000).catch(() => new Response(null, { status: 599 }));
+          console.log('[decoder] functions text-only status', rt.status);
+          if (rt.ok) res = rt;
         }
         if (res.ok) {
           const data = await res.json();
@@ -385,7 +386,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             mcqsOut = improveHints(mcqsOut, question);
 
             // Deduplicate by question+options+answer and renumber steps sequentially
-            const unique = new Map<string, typeof mcqsOut[number]>();
+            const unique = new Map<string, typeof mcqsOut[number] >();
             for (const m of mcqsOut) {
               const isFiller = String(m.id || '').startsWith('client-fill-');
               if (isFiller) {
