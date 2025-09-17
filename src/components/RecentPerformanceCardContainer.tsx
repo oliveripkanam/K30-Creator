@@ -139,6 +139,7 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
         return {
           id: q.id,
           date: formatDisplayDate(q.decoded_at),
+          ts: new Date(q.decoded_at).getTime(),
           marks: Number(q.marks || 0),
           timeSpentMinutes: (() => { const secs = (q.time_spent_seconds ?? null); return secs != null ? (secs / 60) : Number(q.time_spent_minutes || 0); })(),
           tokensEarned: Number(q.tokens_earned || 0),

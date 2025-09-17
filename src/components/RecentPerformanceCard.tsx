@@ -8,6 +8,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/t
 export interface DecodeAttempt {
   id: string;
   date: string;
+  ts: number;
   marks: number;
   timeSpentMinutes: number;
   tokensEarned: number;
@@ -395,7 +396,7 @@ export const RecentPerformanceCard: React.FC<RecentPerformanceCardProps> = ({
       <div className="space-y-2">
         <h3 className="text-sm font-medium text-gray-900">Recent Activity</h3>
         <div className="space-y-2">
-          {decodes.slice(0, 5).map((decode) => (
+          {([...decodes].sort((a,b)=>b.ts-a.ts)).slice(0, 5).map((decode) => (
             <RecentListItem
               key={decode.id}
               decode={decode}
