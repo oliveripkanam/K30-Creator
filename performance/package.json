@@ -1,10 +1,9 @@
 
   {
-      "name": "k30-creator",
+      "name": "Recent Performance Card",
       "version": "0.1.0",
       "private": true,
       "dependencies": {
-          "@supabase/supabase-js": "^2.45.0",
           "@radix-ui/react-accordion": "^1.2.3",
           "@radix-ui/react-alert-dialog": "^1.1.6",
           "@radix-ui/react-aspect-ratio": "^1.1.2",
@@ -36,7 +35,6 @@
           "cmdk": "^1.1.1",
           "embla-carousel-react": "^8.6.0",
           "input-otp": "^1.4.2",
-          "katex": "^0.16.11",
           "lucide-react": "^0.487.0",
           "next-themes": "^0.4.6",
           "react": "^18.3.1",
@@ -47,12 +45,9 @@
           "recharts": "^2.15.2",
           "sonner": "^2.0.3",
           "tailwind-merge": "*",
-          "vaul": "^1.1.2",
-          "pdfjs-dist": "^4.7.76",
-          "mammoth": "^1.6.0"
+          "vaul": "^1.1.2"
       },
       "devDependencies": {
-          "@netlify/functions": "^2.8.1",
           "@types/node": "^20.10.0",
           "@vitejs/plugin-react-swc": "^3.10.2",
           "vite": "6.3.5"

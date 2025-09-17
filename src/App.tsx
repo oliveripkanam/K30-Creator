@@ -81,7 +81,6 @@ interface SolutionSummary {
 }
 
 type AppState = 'login' | 'dashboard' | 'input' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review' | 'milestones' | 'streaks';
-const [selectedHistoryId, setSelectedHistoryId] = [undefined as any];
 
 export default function App() {
   const [currentState, setCurrentState] = useState<AppState>('login');
@@ -100,6 +99,8 @@ export default function App() {
   const [isAuthHydrating, setIsAuthHydrating] = useState<boolean>(false);
   // Removed session hydration on refresh by request
   const isAuthHydratingRef = useRef<boolean>(false);
+  // Track the pre-inserted question id for real-time answer persistence
+  const [activeQuestionId, setActiveQuestionId] = useState<string | null>(null);
 
   useEffect(() => {
     isAuthHydratingRef.current = isAuthHydrating;
@@ -329,6 +330,56 @@ export default function App() {
         setMCQs(prev => prev.map(m => map.has(m.id) ? { ...m, hint: map.get(m.id)! } : m));
       } catch {}
     })();
+
+    // Pre-insert question + steps so we can write answers in real time
+    (async () => {
+      try {
+        if (!user || !currentQuestion) return;
+        // Insert question row first
+        const insertQuestions = supabase
+          .from('questions')
+          .insert({
+            user_id: user.id,
+            source_type: currentQuestion.type,
+            marks: currentQuestion.marks,
+            original_input: currentQuestion.content,
+            extracted_text: currentQuestion.extractedText ?? null,
+            decoded_at: new Date().toISOString(),
+            // persist provenance for focus-area views
+            subject: (currentQuestion as any)?.subject || null,
+            syllabus: (currentQuestion as any)?.syllabus || null,
+            year: (currentQuestion as any)?.level || null,
+          })
+          .select('id')
+          .single();
+        const { data: inserted, error } = (await Promise.race([
+          insertQuestions,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('pre-insert questions timeout after 8s')), 8000)),
+        ])) as any;
+        if (error) throw error;
+        const preId: string | undefined = inserted?.id;
+        if (!preId) return;
+        setActiveQuestionId(preId);
+        try { (window as any).__k30_activeQuestionId = preId; } catch {}
+        // Pre-insert mcq_steps rows with choices and correct labels
+        const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
+        const rows = generatedMCQs.map((m, i) => ({
+          question_id: preId,
+          step_index: i,
+          prompt: m.question,
+          choices: choicesWithLabels(m.options),
+          correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
+          user_answer: null,
+          is_correct: null,
+          answered_at: null,
+        }));
+        const insertSteps = supabase.from('mcq_steps').insert(rows);
+        await Promise.race([
+          insertSteps,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('pre-insert steps timeout after 8s')), 8000)),
+        ]);
+      } catch {}
+    })();
   };
 
   const handleMCQComplete = () => {
@@ -488,15 +539,15 @@ export default function App() {
       };
 
       console.log('[persist] inserting into questions...');
-      let insertedId: string | undefined;
-      if (!hasSessionNow) {
+      let insertedId: string | undefined = activeQuestionId || undefined;
+      if (!insertedId && !hasSessionNow) {
         // Try REST fallback first when session appears missing
         const inserted = await Promise.race([
           restInsertQuestions(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('questions insert timeout after 8s')), 8000)),
         ]) as any;
         insertedId = inserted?.id;
-      } else {
+      } else if (!insertedId) {
         const insertQuestions = supabase
           .from('questions')
           .insert({
@@ -523,6 +574,18 @@ export default function App() {
           throw error;
         }
         insertedId = inserted?.id;
+      } else if (insertedId) {
+        // Update the pre-inserted question with final fields
+        try {
+          await supabase
+            .from('questions')
+            .update({
+              time_spent_minutes: timeSpent,
+              tokens_earned: tokensEarned,
+              solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
+            })
+            .eq('id', insertedId);
+        } catch {}
       }
 
       console.log('[persist] questions insert ok', { id: insertedId });
@@ -545,39 +608,35 @@ export default function App() {
           } as any;
           window.dispatchEvent(new CustomEvent('k30:history:optimistic', { detail: optimisticItem }));
         } catch {}
-        const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
-        console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
-        if (!hasSessionNow) {
-          await Promise.race([
-            restInsertMcqSteps(questionId),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000)),
-          ]);
-          console.log('[persist] saved question + steps (REST)', { questionId, steps: mcqs.length });
-          try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
-          await updateAnswersAndMistakes(questionId, hasSessionNow);
-        } else {
-          const stepsInsert = supabase.from('mcq_steps').insert(
-            mcqs.map((m, i) => ({
-              question_id: questionId,
-              step_index: i,
-              prompt: m.question,
-              choices: choicesWithLabels(m.options),
-              correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
-              user_answer: null,
-              is_correct: null,
-              answered_at: null,
-            }))
-          );
-          const stepsAbort = new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000));
-          const { error: stepsErr } = (await Promise.race([stepsInsert, stepsAbort])) as any;
-          if (stepsErr) {
-            console.error('[persist] insert mcq_steps failed', { error: stepsErr });
+        // If steps were already pre-inserted, skip inserting again and only update answers
+        if (!activeQuestionId) {
+          const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
+          console.log('[persist] inserting into mcq_steps...', { questionId, count: mcqs.length });
+          if (!hasSessionNow) {
+            await Promise.race([
+              restInsertMcqSteps(questionId),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000)),
+            ]);
+            console.log('[persist] saved question + steps (REST)', { questionId, steps: mcqs.length });
           } else {
-            console.log('[persist] saved question + steps', { questionId, steps: mcqs.length });
-            try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
-            await updateAnswersAndMistakes(questionId, hasSessionNow);
+            const stepsInsert = supabase.from('mcq_steps').insert(
+              mcqs.map((m, i) => ({
+                question_id: questionId,
+                step_index: i,
+                prompt: m.question,
+                choices: choicesWithLabels(m.options),
+                correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
+                user_answer: null,
+                is_correct: null,
+                answered_at: null,
+              }))
+            );
+            const stepsAbort = new Promise((_, reject) => setTimeout(() => reject(new Error('mcq_steps insert timeout after 8s')), 8000));
+            await Promise.race([stepsInsert, stepsAbort]);
           }
         }
+        try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
+        await updateAnswersAndMistakes(questionId, hasSessionNow);
       }
       // Refresh DB-backed totals, tokens, and mistakes after save
       try {
@@ -614,16 +673,16 @@ export default function App() {
       setIsSaving(false);
       setIsDashLoading(false);
       if (navigateAfter) setCurrentState('dashboard');
+      setActiveQuestionId(null);
     }
   };
 
   const handleSolutionComplete = async () => {
-    // Fire-and-forget save, navigate immediately to avoid UI getting stuck
-    void saveCompletion(false);
+    // Save and navigate after persistence completes to ensure mcq_steps answers are updated
     setIsDashLoading(true);
-    // Safety: auto-hide after 9s even if refresh hangs
-    try { setTimeout(() => setIsDashLoading(false), 9000); } catch {}
-    setCurrentState('dashboard');
+    void saveCompletion(true);
+    // Safety: auto-hide loader after 12s in rare hangs
+    try { setTimeout(() => setIsDashLoading(false), 12000); } catch {}
   };
 
   useEffect(() => {

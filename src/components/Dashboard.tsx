@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Progress } from './ui/progress';
 import { Separator } from './ui/separator';
 import { MechanicsRadarChart } from './RadarChart';
+import { RecentPerformanceCardContainer } from './RecentPerformanceCardContainer';
 import { supabase } from '../lib/supabase';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { MILESTONES } from '../constants/catalog';
@@ -164,8 +165,7 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onOp
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Trend sparkline component (local) */}
-      <TrendSparkline.Definitions />
+      {/* Trend sparkline removed; using RecentPerformanceCardContainer */}
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
@@ -341,16 +341,8 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onOp
           </Card>
         </div>
 
-        {/* Recent Performance Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent Performance Trend</CardTitle>
-            <CardDescription>Accuracy per decode (last 10)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TrendSparkline userId={user.id} />
-          </CardContent>
-        </Card>
+        {/* Recent Performance Trend (designed card) */}
+        <RecentPerformanceCardContainer userId={user.id} onOpenHistory={onViewHistory} />
 
         {/* Performance Portfolio - Radar Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">

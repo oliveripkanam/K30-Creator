@@ -78,6 +78,47 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
       });
       (window as any).__k30_answerLog = log;
     } catch {}
+
+    // Real-time persistence of the answer if a question_id is available
+    try {
+      const qid = (window as any).__k30_activeQuestionId as string | undefined;
+      if (qid) {
+        const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+        const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+        let accessToken = '';
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i) || '';
+            if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+              const v = localStorage.getItem(k) || '';
+              const parsed = JSON.parse(v || '{}');
+              accessToken = parsed?.access_token || '';
+              if (accessToken) break;
+            }
+          }
+        } catch {}
+        const label = String.fromCharCode(65 + selectedAnswer);
+        const isCorrect = selectedAnswer === currentMCQ.correctAnswer;
+        // Try client first if we have supabase globally
+        try {
+          const { supabase } = require('../lib/supabase');
+          void supabase
+            .from('mcq_steps')
+            .update({ user_answer: label, is_correct: isCorrect, answered_at: new Date().toISOString() })
+            .eq('question_id', qid)
+            .eq('step_index', currentIndex);
+        } catch {
+          // REST fallback
+          if (envUrl && envAnon && accessToken) {
+            void fetch(`${envUrl}/rest/v1/mcq_steps?question_id=eq.${qid}&step_index=eq.${currentIndex}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`, 'apikey': envAnon, 'Prefer': 'resolution=merge-duplicates' } as any,
+              body: JSON.stringify({ user_answer: label, is_correct: isCorrect, answered_at: new Date().toISOString() }),
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch {}
   };
 
   const handleNext = () => {
