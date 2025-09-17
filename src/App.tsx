@@ -461,11 +461,23 @@ export default function App() {
         return exists ? prev : [completedQuestion, ...prev];
       });
       
+      // Optimistically bump streak locally using HK timezone day boundary; server will correct later if needed
+      const fmtHK = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const todayHK = fmtHK.format(new Date());
+      const lastKeyStorage = `k30:lastDecodeHK:${user.id}`;
+      const lastHK = localStorage.getItem(lastKeyStorage) || '';
+      let nextStreak = user.currentStreak;
+      if (lastHK !== todayHK) {
+        const y = new Date(); y.setDate(y.getDate() - 1);
+        const yHK = fmtHK.format(y);
+        nextStreak = lastHK === yHK ? Math.max(1, user.currentStreak + 1) : 1;
+        try { localStorage.setItem(lastKeyStorage, todayHK); } catch {}
+      }
+
       setUser({
         ...user,
         questionsDecoded: user.questionsDecoded + 1,
-      // Do not locally bump streak; server will compute real streak
-      currentStreak: user.currentStreak,
+        currentStreak: nextStreak,
         totalMarks: user.totalMarks + currentQuestion.marks,
         tokens: user.tokens + tokensEarned
       });
