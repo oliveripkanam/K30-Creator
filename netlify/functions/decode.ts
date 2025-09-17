@@ -264,6 +264,7 @@ export default async (req: Request) => {
         try { parsed = JSON.parse(m[0]); } catch {}
       }
     }
+    try { console.log('[fn decode] parsed keys', Object.keys((parsed as any) || {})); } catch {}
     // Helper: normalize an options structure into a clean string[4]
     const normalizeOptions = (raw: any): string[] | null => {
       try {
@@ -378,6 +379,7 @@ export default async (req: Request) => {
       parsed = { mcqs: salvagedMcqs, solution: safeSolution } as any;
     }
     const ensured = (parsed as any) as { mcqs: any[]; solution: any };
+    try { console.log('[fn decode] ensured sizes', { mcqs: Array.isArray(ensured?.mcqs) ? ensured.mcqs.length : -1, hasSolution: !!ensured?.solution }); } catch {}
     // Server-side validator to drop low-quality items and request replacements if needed
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
     const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement|according to the text/i.test(q);
@@ -450,6 +452,7 @@ export default async (req: Request) => {
           return 'Progress the solution with the next logically required step.';
         };
         ensured.solution.workingSteps = plan.slice(0, 6).map((p: any) => goalLabel(String(p?.goal || '')));
+        try { console.log('[fn decode] built workingSteps from plan', ensured.solution.workingSteps); } catch {}
       }
     } catch {}
 
@@ -464,6 +467,7 @@ export default async (req: Request) => {
         if (cand && !isGeneric(cand)) ws.push(cand);
       }
       ensured.solution.workingSteps = ws.slice(0, 6);
+      try { console.log('[fn decode] built workingSteps from mcqs', ensured.solution.workingSteps); } catch {}
     }
 
     // If keyFormulas missing, prefer relations from parsed summary; else extract from MCQs
@@ -483,6 +487,7 @@ export default async (req: Request) => {
         if (match) set.add(match[0].replace(/\s+/g,'').slice(0,20));
       }
       ensured.solution.keyFormulas = Array.from(set).slice(0, 3);
+      try { console.log('[fn decode] extracted keyFormulas', ensured.solution.keyFormulas); } catch {}
     }
 
     // Always produce at least 2 key points
@@ -496,6 +501,7 @@ export default async (req: Request) => {
       }
       if (kp.length < 2) add('Select the governing relation first, then substitute known values and compute.');
       (ensured.solution as any).keyPoints = kp.slice(0, 3);
+      console.log('[fn decode] final keyPoints', (ensured.solution as any).keyPoints);
     } catch {}
 
     // Do not top-up here; step2 was instructed to return exactly 'marks'
