@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { ChevronLeft, ChevronRight, Flame, Target, Calendar as CalIcon, Hash } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 type Range = 30 | 90 | 180;
@@ -61,6 +62,42 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
   const [countByDay, setCountByDay] = React.useState<Record<string, number>>({});
   const { current, longest, daysSolved, totalQuestions } = computeStreaks(countByDay, days);
 
+  // Simple-calendar view state
+  const [currentDate, setCurrentDate] = React.useState<Date>(new Date());
+  const today = new Date();
+  const isToday = (d: Date) => d.toDateString() === today.toDateString();
+  const isCurrentMonth = (d: Date) => d.getMonth() === currentDate.getMonth();
+  const formatKey = (d: Date) => {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  };
+  const generateWeeks = () => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const start = new Date(firstDay);
+    start.setDate(start.getDate() - firstDay.getDay()); // Sunday start
+    const weeks: Date[][] = [];
+    let cursor = new Date(start);
+    for (let w = 0; w < 6; w++) {
+      const row: Date[] = [];
+      for (let d = 0; d < 7; d++) { row.push(new Date(cursor)); cursor.setDate(cursor.getDate() + 1); }
+      weeks.push(row);
+      if (cursor > lastDay && w >= 3) break;
+    }
+    return weeks;
+  };
+  const weeks = generateWeeks();
+  const monthYear = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const navigateMonth = (dir: 'prev' | 'next') => {
+    const nd = new Date(currentDate);
+    nd.setMonth(nd.getMonth() + (dir === 'prev' ? -1 : 1));
+    setCurrentDate(nd);
+  };
+
   React.useEffect(() => { setDays(buildRangeDays(range)); }, [range]);
 
   React.useEffect(() => {
@@ -91,46 +128,16 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
     return () => { cancelled = true; };
   }, [userId, range, days]);
 
-  // Monthly calendar data (Figma-like layout)
-  const today = new Date();
-  const startDate = new Date(days[0]);
-  const monthBlocks = React.useMemo(() => {
-    const blocks: Array<{ year: number; month: number; name: string; weeks: Date[][] }> = [];
-    let cur = new Date(startDate);
-    cur.setDate(1);
-    while (cur <= today) {
-      const month = cur.getMonth();
-      const year = cur.getFullYear();
-      const monthStart = new Date(year, month, 1);
-      const monthEnd = new Date(year, month + 1, 0);
-      const calStart = new Date(monthStart);
-      calStart.setDate(monthStart.getDate() - monthStart.getDay()); // start on Sunday
-      const calEnd = new Date(monthEnd);
-      calEnd.setDate(monthEnd.getDate() + (6 - monthEnd.getDay())); // end on Saturday
-      const weeks: Date[][] = [];
-      let weekStart = new Date(calStart);
-      while (weekStart <= calEnd) {
-        const wk: Date[] = [];
-        for (let i = 0; i < 7; i++) {
-          const d = new Date(weekStart);
-          d.setDate(weekStart.getDate() + i);
-          wk.push(d);
-        }
-        weeks.push(wk);
-        weekStart.setDate(weekStart.getDate() + 7);
-      }
-      blocks.push({ year, month, name: monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }), weeks });
-      cur = new Date(year, month + 1, 1);
-    }
-    return blocks;
-  }, [startDate, today]);
-
   const todayKey = formatKey(new Date(new Date().setHours(0,0,0,0)));
-  const isInRange = (d: Date) => d >= startDate && d <= today;
-  const isSameMonth = (d: Date, m: number) => d.getMonth() === m;
-  const levelFor = (c: number, dim: boolean) => {
-    const base = c === 0 ? 'bg-gray-50 border-gray-200' : c < 2 ? 'bg-green-50 border-green-200' : c < 4 ? 'bg-green-100 border-green-300' : 'bg-green-200 border-green-400';
-    return base + (dim ? ' opacity-30' : '');
+  const activityLevel = (c: number) => c === 0 ? 'none' : c <= 2 ? 'low' : c <= 4 ? 'medium' : 'high';
+  const cellColor = (level: string, currentMonth: boolean) => {
+    const dim = currentMonth ? '' : ' opacity-40';
+    switch (level) {
+      case 'low': return 'bg-green-50 border-green-200' + dim;
+      case 'medium': return 'bg-green-100 border-green-300' + dim;
+      case 'high': return 'bg-green-200 border-green-400' + dim;
+      default: return 'bg-background border-border' + dim;
+    }
   };
 
   return (
@@ -156,67 +163,53 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto p-4 space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <Card>
-            <CardHeader className="pb-2"><CardDescription>Current Streak</CardDescription><CardTitle>{current} days</CardTitle></CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardDescription>Longest Streak</CardDescription><CardTitle>{longest} days</CardTitle></CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardDescription>Days Solved</CardDescription><CardTitle>{daysSolved}/{days.length}</CardTitle></CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2"><CardDescription>Total Questions</CardDescription><CardTitle>{totalQuestions}</CardTitle></CardHeader>
-          </Card>
+      <div className="max-w-6xl mx-auto p-6 space-y-6">
+        {/* Header (month navigation) */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="outline" size="icon" onClick={() => navigateMonth('prev')} className="h-10 w-10"><ChevronLeft className="h-5 w-5" /></Button>
+            <h1 className="text-3xl font-semibold text-foreground">{monthYear}</h1>
+            <Button variant="outline" size="icon" onClick={() => navigateMonth('next')} className="h-10 w-10"><ChevronRight className="h-5 w-5" /></Button>
+          </div>
+          <Button variant="outline" onClick={() => setCurrentDate(new Date())}>Today</Button>
         </div>
 
+        {/* Stats row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {[{t:'Current Streak',v:`${current} days`,Icon:Flame,color:'text-orange-600'},{t:'Longest Streak',v:`${longest} days`,Icon:Target,color:'text-green-600'},{t:'Days Active',v:`${daysSolved} of ${days.length}`,Icon:CalIcon,color:'text-green-700'},{t:'Total Questions',v:`${totalQuestions}`,Icon:Hash,color:'text-purple-600'}].map((c,idx)=> (
+            <Card key={idx}><CardContent className="p-4"><div className="flex items-center gap-3"><c.Icon className={`h-5 w-5 ${c.color}`} /><div><p className="text-sm text-muted-foreground">{c.t}</p><div className="text-2xl font-medium">{c.v}</div></div></div></CardContent></Card>
+          ))}
+        </div>
+
+        {/* Calendar grid */}
         <Card>
-          <CardHeader>
-            <CardTitle>Calendar</CardTitle>
-            <CardDescription>Each cell shows questions completed that day</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-8">
-              {monthBlocks.map((blk) => (
-                <div key={`${blk.year}-${blk.month}`} className="space-y-2">
-                  <h3 className="text-lg font-medium">{blk.name}</h3>
-                  <div className="grid grid-cols-7 gap-1 mb-2">
-                    {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
-                      <div key={d} className="text-center text-sm text-muted-foreground py-1">{d}</div>
-                    ))}
-                  </div>
-                  <div className="space-y-1">
-                    {blk.weeks.map((w, wi) => (
-                      <div key={wi} className="grid grid-cols-7 gap-1">
-                        {w.map((d, di) => {
-                          const k = formatKey(d);
-                          const c = countByDay[k] || 0;
-                          const dim = !isSameMonth(d, blk.month) || !isInRange(d);
-                          const isTodayCell = k === todayKey;
-                          return (
-                            <div key={di} className={`relative w-12 h-12 border rounded-lg ${levelFor(c, dim)} ${isTodayCell ? 'ring-2 ring-primary ring-offset-2' : ''}`} title={`${k} • ${c} question${c===1?'':'s'}`}>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className={`text-sm ${dim ? 'text-muted-foreground' : 'text-foreground'}`}>{d.getDate()}</span>
-                              </div>
-                              {c > 0 && !dim && <div className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full" />}
-                            </div>
-                          );
-                        })}
+          <CardContent className="p-6">
+            <div className="grid grid-cols-7 gap-4 mb-4">
+              {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d)=>(<div key={d} className="text-center py-2"><span className="text-sm font-medium text-muted-foreground">{d}</span></div>))}
+            </div>
+            <div className="space-y-2">
+              {weeks.map((wk, wi)=> (
+                <div key={wi} className="grid grid-cols-7 gap-4">
+                  {wk.map((d, di)=>{
+                    const k = formatKey(d);
+                    const c = countByDay[k] || 0;
+                    const level = activityLevel(c);
+                    const isCur = isCurrentMonth(d);
+                    const isTod = isToday(d);
+                    return (
+                      <div key={di} className={`relative h-16 rounded-lg border-2 transition-all ${cellColor(level, isCur)} ${isTod ? 'ring-2 ring-primary ring-offset-2' : ''} ${!isCur ? 'opacity-60' : ''}`} title={`${k} • ${c} question${c===1?'':'s'}`}>
+                        <div className="absolute top-2 left-2"><span className={`text-lg font-medium ${isTod ? 'text-primary' : isCur ? 'text-foreground' : 'text-muted-foreground'}`}>{d.getDate()}</span></div>
+                        {c > 0 && isCur && <div className="absolute top-2 right-2 flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-green-500" />{c>1 && <span className="text-xs font-medium text-green-700">{c}</span>}</div>}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
-            <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-4">
-              <span>Less</span>
-              <div className="w-4 h-3 rounded bg-gray-200" />
-              <div className="w-4 h-3 rounded bg-green-200" />
-              <div className="w-4 h-3 rounded bg-green-400" />
-              <div className="w-4 h-3 rounded bg-green-600" />
-              <span>More</span>
+            <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground mt-4">
+              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded border bg-background"></div><span>No activity</span></div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-green-100 border-green-200"></div><span>Low activity</span></div>
+              <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-green-200 border-green-300"></div><span>High activity</span></div>
             </div>
           </CardContent>
         </Card>

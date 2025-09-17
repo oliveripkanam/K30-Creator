@@ -5,3 +5,5 @@ dist
 .netlify
 .env.*
 docs-private/
+streaks/
+milestones/
