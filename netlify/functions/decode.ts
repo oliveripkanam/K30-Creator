@@ -12,6 +12,7 @@ const dbg = (...args: any[]) => { try { console.log('[fn decode][dbg]', ...args)
 
 export default async (req: Request) => {
   try { console.log('[fn decode] invocation', { method: req.method, url: req.url }); } catch {}
+  const fnStart = Date.now();
   if (req.method !== 'POST') return respond(405, { error: 'Method not allowed' });
 
   let payload: DecodeRequest; try { payload = await req.json(); } catch { return respond(400, { error: 'Invalid JSON body' }); }
@@ -519,7 +520,7 @@ export default async (req: Request) => {
     }
 
     // STEP 3 (new): Dedicated synthesis call to produce high-quality workingSteps and keyPoints
-    try {
+    const runSynthesis = async () => {
       const synthPayload = {
         mode: isConceptual ? 'conceptual' : 'quantitative',
         summary: parsedSummary,
@@ -538,19 +539,20 @@ Rules:
 - workingSteps: 3-6 ordered, imperative, concrete actions. For quantitative: include (1) a governing relation (e.g., F = ma / v = u + at) and (2) one explicit substitution with units.
 - keyPoints: 2-4 DISTINCT, SHORT noun-phrases (≤ 10 words each). No leading verbs like 'apply/recognize/identify/substitute'. No overlap with workingSteps. Avoid generic advice. Prefer constants or laws (e.g., 'g ≈ 9.81 m/s² near Earth', 'Uniform acceleration in vacuum').
 - applications: 2-4 concise real-world uses or contexts (≤ 12 words each) where this calculation or concept is applied. They must be concrete contexts (e.g., 'Drop-test timing for protective gear', 'Projectile motion range estimation'), not steps or definitions.`;
-      const synthRes = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-        body: JSON.stringify({
-          response_format: { type: 'json_object' },
-          temperature: 0.1,
-          messages: [ { role: 'user', content: [ { type: 'text', text: `Synthesize solution sections from:
-${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthInstruction } ] } ],
-          max_tokens: 320
-        })
-      });
-      dbg('step3(synthesize) status', synthRes.status);
-      if (synthRes.ok) {
-        const sd = await synthRes.json();
+      const controller = new AbortController();
+      const t = setTimeout(() => { try { controller.abort(); } catch {} }, 4500);
+      let sd: any = null;
+      try {
+        const synthRes = await fetch(url, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+          body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.1, messages: [ { role: 'user', content: [ { type: 'text', text: `Synthesize solution sections from:
+${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthInstruction } ] } ], max_tokens: 320 }),
+          signal: controller.signal as any
+        });
+        dbg('step3(synthesize) status', synthRes.status);
+        if (synthRes.ok) { sd = await synthRes.json(); }
+      } finally { clearTimeout(t); }
+      if (sd) {
         usage_synth = (sd as any)?.usage || null;
         const sc = sd?.choices?.[0]?.message?.content || '';
         try {
@@ -599,28 +601,29 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
           try { console.log('[fn decode] synthesis result', { steps: ensured.solution.workingSteps, keyPoints: (ensured.solution as any).keyPoints }); } catch {}
         } catch {}
       }
-    } catch {}
+    };
 
     // STEP 4: Dedicated pitfalls synthesis to avoid repetition and ensure relevance
-    try {
+    const runPitfalls = async () => {
       const pitInstruction = `Return ONLY JSON: { pitfalls: string[] }.
 Rules:
 - Generate 3-5 common mistakes SPECIFIC to the formulas/plan used above.
 - Each item ≤ 14 words, starts with a noun phrase (no verbs like 'use/apply/recognize').
 - Avoid duplicates and generic advice.`;
-      const pitRes = await fetch(url, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
-        body: JSON.stringify({
-          response_format: { type: 'json_object' },
-          temperature: 0.2,
-          messages: [ { role: 'user', content: [ { type: 'text', text: `Context:
-${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormulas, steps: ensured.solution.workingSteps }).slice(0, 4000)}` }, { type: 'text', text: pitInstruction } ] } ],
-          max_tokens: 220
-        })
-      });
-      dbg('step4(pitfalls) status', pitRes.status);
-      if (pitRes.ok) {
-        const pd = await pitRes.json();
+      const controller = new AbortController();
+      const t = setTimeout(() => { try { controller.abort(); } catch {} }, 3500);
+      let pd: any = null;
+      try {
+        const pitRes = await fetch(url, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+          body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.2, messages: [ { role: 'user', content: [ { type: 'text', text: `Context:
+${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormulas, steps: ensured.solution.workingSteps }).slice(0, 4000)}` }, { type: 'text', text: pitInstruction } ] } ], max_tokens: 220 }),
+          signal: controller.signal as any
+        });
+        dbg('step4(pitfalls) status', pitRes.status);
+        if (pitRes.ok) { pd = await pitRes.json(); }
+      } finally { clearTimeout(t); }
+      if (pd) {
         usage_pitfalls = (pd as any)?.usage || null;
         const pc = pd?.choices?.[0]?.message?.content || '';
         try {
@@ -646,7 +649,10 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
         for (const k of (ensured.solution.keyFormulas || [])) { if (statics[k]) base.push(...statics[k]); }
         (ensured.solution as any).pitfalls = Array.from(new Set(base)).slice(0, 5);
       }
-    } catch {}
+    };
+
+    // Run synthesis and pitfalls in parallel with timeouts
+    await Promise.allSettled([ runSynthesis(), runPitfalls() ]);
 
     // STEP 3.1: Let the model decide step count; if too few, top-up from MCQs without filler
     try {
