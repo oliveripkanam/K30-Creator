@@ -317,11 +317,12 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         };
 
         // Allow more time for provider round-trip in production to avoid premature aborts
-        let res = await fetchWithTimeout('/.netlify/functions/ai-decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
-        console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
+        // Prefer the stable decode path first (ai-decode occasionally 504s on some regions)
+        let res = await fetchWithTimeout('/.netlify/functions/decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
+        console.log('[decoder] /.netlify/functions/decode status', res.status);
         if (!res.ok) {
-          const alt = await fetchWithTimeout('/.netlify/functions/decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
-          console.log('[decoder] /.netlify/functions/decode status', alt.status);
+          const alt = await fetchWithTimeout('/.netlify/functions/ai-decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
+          console.log('[decoder] /.netlify/functions/ai-decode status', alt.status);
           if (alt.ok) res = alt;
         }
         if (!res.ok) {
