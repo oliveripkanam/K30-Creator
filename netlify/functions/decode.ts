@@ -89,6 +89,12 @@ export default async (req: Request) => {
 
     // STEP 1: Extract concise structured givens/relations JSON + a step plan of length 'marks'
     const parseInstruction = `\n\nReturn JSON only: { quantities:[{name,symbol?,value?,unit?,known:boolean,type:'numeric'|'symbolic'}], relations:[string], targets:[string], constraints:[string], context:string, subjectHint?:'quantitative'|'conceptual'|'mixed', plan:[{step:number, goal:'select relation'|'resolve components'|'balance forces'|'substitute & evaluate'|'compute next quantity'|'derive formula'|'identify concept'|'compare/contrast'|'classify', mustProduce:'number'|'formula'|'fact', note?:string}] }. Plan length must be exactly ${marks}.`;
+    // Track token usage per stage
+    let usage_parse: any = null;
+    let usage_generate: any = null;
+    let usage_synth: any = null;
+    let usage_pitfalls: any = null;
+
     const parseRes = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -103,6 +109,7 @@ export default async (req: Request) => {
     let parsedSummary: any = null;
     if (parseRes.ok) {
       const pr = await parseRes.json();
+      usage_parse = (pr as any)?.usage || null;
       const c = pr?.choices?.[0]?.message?.content || '';
       try { parsedSummary = JSON.parse(c); } catch { const m = c.match(/\{[\s\S]*\}/); if (m) { try { parsedSummary = JSON.parse(m[0]); } catch {} } }
     }
@@ -254,6 +261,8 @@ export default async (req: Request) => {
         return respond(502, { error: 'Empty response from Azure', azureData: data });
       }
     }
+    // Record usage for generation stage after final content is resolved
+    usage_generate = usage || null;
     
     let parsed: DecodeResponse | null = null;
     try { 
@@ -542,6 +551,7 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
       dbg('step3(synthesize) status', synthRes.status);
       if (synthRes.ok) {
         const sd = await synthRes.json();
+        usage_synth = (sd as any)?.usage || null;
         const sc = sd?.choices?.[0]?.message?.content || '';
         try {
           const sj = JSON.parse(sc);
@@ -611,6 +621,7 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
       dbg('step4(pitfalls) status', pitRes.status);
       if (pitRes.ok) {
         const pd = await pitRes.json();
+        usage_pitfalls = (pd as any)?.usage || null;
         const pc = pd?.choices?.[0]?.message?.content || '';
         try {
           const pj = JSON.parse(pc);
@@ -728,7 +739,28 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
     ensured.mcqs = (ensured.mcqs || []);
     ensured.mcqs = ensured.mcqs.slice(0, marks);
 
-    return respond(200, { ...ensured, usage });
+    // Aggregate usage across stages
+    const sumUsage = (arr: any[]) => {
+      const tot = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } as any;
+      for (const u of arr) {
+        if (!u) continue;
+        tot.prompt_tokens += Number(u.prompt_tokens || 0);
+        tot.completion_tokens += Number(u.completion_tokens || 0);
+        tot.total_tokens += Number(u.total_tokens || 0);
+      }
+      return tot;
+    };
+    const usageBreakdown = {
+      stages: {
+        parse: usage_parse,
+        generate: usage_generate,
+        synth: usage_synth,
+        pitfalls: usage_pitfalls
+      },
+      totals: sumUsage([usage_parse, usage_generate, usage_synth, usage_pitfalls])
+    };
+    try { console.log('[fn decode] token usage breakdown', usageBreakdown); } catch {}
+    return respond(200, { ...ensured, usage: usageBreakdown });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
