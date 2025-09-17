@@ -463,10 +463,15 @@ export default async (req: Request) => {
       for (const m of ensured.mcqs) {
         const expl = String(m?.explanation || '').trim();
         const q = String(m?.question || '').trim();
-        const cand = (expl || q).slice(0, 200);
-        if (cand && !isGeneric(cand)) ws.push(cand);
+        const base = (expl || q);
+        // Try to split long blurbs into concise steps
+        const parts = String(base).split(/\.|;|\n|\r|•|\u2022/g).map(s => s.trim()).filter(Boolean);
+        const chosen = (parts.length > 1 ? parts : [base]).map(s => s.slice(0, 200));
+        for (const cand of chosen) { if (cand && !isGeneric(cand)) ws.push(cand); }
       }
-      ensured.solution.workingSteps = ws.slice(0, 6);
+      // De-duplicate and cap
+      const uniq = Array.from(new Set(ws.filter(Boolean)));
+      ensured.solution.workingSteps = uniq.slice(0, 6);
       try { console.log('[fn decode] built workingSteps from mcqs', ensured.solution.workingSteps); } catch {}
     }
 
@@ -490,7 +495,7 @@ export default async (req: Request) => {
       try { console.log('[fn decode] extracted keyFormulas', ensured.solution.keyFormulas); } catch {}
     }
 
-    // Always produce at least 2 key points
+    // Always produce at least 2 key points and avoid duplicating working steps
     try {
       const kp = (ensured.solution as any).keyPoints as string[];
       const add = (s: string) => { if (s && !kp.includes(s)) kp.push(s); };
@@ -500,7 +505,10 @@ export default async (req: Request) => {
         if (ws0) add(ws0.replace(/\.$/, ''));
       }
       if (kp.length < 2) add('Select the governing relation first, then substitute known values and compute.');
-      (ensured.solution as any).keyPoints = kp.slice(0, 3);
+      // Remove items that exactly equal a working step (to avoid mirror content)
+      const wsSet = new Set((ensured.solution.workingSteps || []).map((s: string) => s.toLowerCase()));
+      const filtered = kp.filter(s => !wsSet.has(String(s || '').toLowerCase()));
+      (ensured.solution as any).keyPoints = (filtered.length ? filtered : kp).slice(0, 3);
       console.log('[fn decode] final keyPoints', (ensured.solution as any).keyPoints);
     } catch {}
 
