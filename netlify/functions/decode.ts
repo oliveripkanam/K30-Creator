@@ -524,8 +524,8 @@ export default async (req: Request) => {
       };
       const synthInstruction = `Return ONLY JSON: { workingSteps: string[], keyPoints: string[] }.
 Rules:
-- workingSteps: 3-6 ordered, imperative, concrete actions. For quantitative: one step must name the governing relation (e.g., F = ma / v = u + at) and another must show a substitution (numbers + units). For conceptual: each step states the specific actionable reasoning.
-- keyPoints: 2-4 distinct, high-signal takeaways. They MUST NOT appear verbatim in workingSteps. Avoid generic advice like 'Proceed step-by-step' or 'Use the correct formula'.`;
+- workingSteps: 3-6 ordered, imperative, concrete actions. For quantitative: include (1) a governing relation (e.g., F = ma / v = u + at) and (2) one explicit substitution with units.
+- keyPoints: 2-4 DISTINCT, SHORT noun-phrases (≤ 10 words each). No leading verbs like 'apply/recognize/identify/substitute'. No overlap with workingSteps. Avoid generic advice. Prefer constants or laws (e.g., 'g ≈ 9.81 m/s² near Earth', 'Uniform acceleration in vacuum').`;
       const synthRes = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
@@ -555,6 +555,25 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
           }
           // Distinct key points
           const wsSet = new Set(steps.map(s => s.toLowerCase()));
+          // Simplify helper for short noun-phrases
+          const simplifyPoint = (p: string): string => {
+            let s = String(p || '').trim();
+            s = s.replace(/^\s*(identify|recognize|note|understand|remember|acknowledge)\s+that\s+/i, '')
+                 .replace(/^\s*(apply|use|substitute|compute|calculate)\s+/i, '')
+                 .replace(/\bwhich\b[\s\S]*$/i, '')
+                 .replace(/\bthat\b[\s\S]*$/i, '')
+                 .replace(/,.*$/, '')
+                 .replace(/\.$/, '')
+                 .trim();
+            // Physics common transforms
+            if (/acceleration due to gravity/i.test(s) && /9\.?8\d?\s*m\/s\^?2|m\s*\/?s\^?2/i.test(p)) s = 'g ≈ 9.81 m/s² near Earth';
+            if (/vacuum/i.test(p) && /air resistance|same|uniform|mass/i.test(p)) s = 'Uniform acceleration in vacuum (mass independent)';
+            if (/air resistance/i.test(p)) s = 'Air resistance changes fall rates';
+            // Word cap ~10
+            const words = s.split(/\s+/).filter(Boolean).slice(0, 10); s = words.join(' ');
+            return s;
+          };
+          points = points.map(simplifyPoint).filter(Boolean);
           points = Array.from(new Set(points.filter(p => !wsSet.has(p.toLowerCase()) && !isGeneric(p))));
           ensured.solution.workingSteps = steps.length ? steps : ensured.solution.workingSteps;
           (ensured.solution as any).keyPoints = points.length ? points : (ensured.solution as any).keyPoints;
