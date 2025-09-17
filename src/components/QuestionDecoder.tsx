@@ -316,15 +316,16 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           } finally { clearTimeout(timer); }
         };
 
-        let res = await fetchWithTimeout('/.netlify/functions/ai-decode', payload, 10000).catch(() => new Response(null, { status: 599 }));
+        // Allow more time for provider round-trip in production to avoid premature aborts
+        let res = await fetchWithTimeout('/.netlify/functions/ai-decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
         console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
         if (!res.ok) {
-          const alt = await fetchWithTimeout('/.netlify/functions/decode', payload, 10000).catch(() => new Response(null, { status: 599 }));
+          const alt = await fetchWithTimeout('/.netlify/functions/decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
           console.log('[decoder] /.netlify/functions/decode status', alt.status);
           if (alt.ok) res = alt;
         }
         if (!res.ok) {
-          const api = await fetchWithTimeout('/api/ai-decode', payload, 10000).catch(() => new Response(null, { status: 599 }));
+          const api = await fetchWithTimeout('/api/ai-decode', payload, 30000).catch(() => new Response(null, { status: 599 }));
           console.log('[decoder] /api/ai-decode status', api.status);
           if (api.ok) res = api; else res = api;
         }
@@ -332,7 +333,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         if (!res.ok && res.status >= 500) {
           try { await new Promise(r => setTimeout(r, 600)); } catch {}
           const textOnly = { ...payload, images: undefined } as any;
-          const rt = await fetchWithTimeout('/.netlify/functions/ai-decode', textOnly, 10000).catch(() => new Response(null, { status: 599 }));
+          const rt = await fetchWithTimeout('/.netlify/functions/ai-decode', textOnly, 30000).catch(() => new Response(null, { status: 599 }));
           console.log('[decoder] functions text-only status', rt.status);
           if (rt.ok) res = rt;
         }
