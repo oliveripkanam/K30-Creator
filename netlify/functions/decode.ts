@@ -48,7 +48,7 @@ export default async (req: Request) => {
   ].filter(Boolean);
   // Keep headers compact and cap overall user text for latency/limits
   const userTextHeader = headerParts.length ? `${headerParts.join(' • ')}\n` : '';
-  const userTextRaw = (userTextHeader + (text || '')).slice(0, 2000);
+  const userTextRaw = (userTextHeader + (text || '')).slice(0, 1400);
   // Minimal guardrails to keep outputs correct and structured
   const computeReq = `\n\nCompute step-by-step and choose the option that matches the computed value; verify before finalizing.`;
   const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
@@ -102,8 +102,8 @@ export default async (req: Request) => {
       body: JSON.stringify({
         response_format: { type: 'text' },
         temperature: 0.1,
-        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 1200) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ],
-        max_tokens: 400
+        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 900) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ],
+        max_tokens: 300
       })
     });
     dbg('step1(parse) status', parseRes.status);
@@ -120,7 +120,7 @@ export default async (req: Request) => {
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
     const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
-    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 1600)}` }, { type: 'text', text: genInstruction } ];
+    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 900)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
     genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 1200) });
     // Attach images again if any
@@ -130,6 +130,8 @@ export default async (req: Request) => {
         genContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
       }
     }
+    const genController = new AbortController();
+    const genTimeout = setTimeout(() => { try { genController.abort(); } catch {} }, 12000);
     let res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -137,15 +139,19 @@ export default async (req: Request) => {
         response_format: { type: 'json_object' },
         temperature: 0.1,
         messages: [ { role: 'user', content: genContent } ],
-        max_tokens: 600
-      })
+        max_tokens: 450
+      }),
+      signal: genController.signal as any
     });
     dbg('step2(generate) status', res.status);
+    try { clearTimeout(genTimeout); } catch {}
 
     if (!res.ok && hasImage) {
       const details = await res.text().catch(() => '');
       try { console.warn('[fn decode] azure image request failed; retrying text-only', res.status, details?.slice(0, 300)); } catch {}
       // Retry without image attachment
+      const retryController = new AbortController();
+      const retryTimeout = setTimeout(() => { try { retryController.abort(); } catch {} }, 10000);
       const retryRes2 = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -153,9 +159,11 @@ export default async (req: Request) => {
           response_format: { type: 'text' },
           temperature: 0.1,
           messages: [ { role: 'user', content: [{ type: 'text', text: userText.slice(0, 3000) }] } ]
-        })
+        }),
+        signal: retryController.signal as any
       });
       dbg('response (retry text-only) status', retryRes2.status);
+      try { clearTimeout(retryTimeout); } catch {}
       if (retryRes2.ok) {
         // Rebind res for downstream handling
         (res as any) = retryRes2;
@@ -181,6 +189,8 @@ export default async (req: Request) => {
     if (!content?.trim()) {
       dbg('empty content on primary OK; retry with text format');
       try { console.warn('[fn decode] empty content with OK response; retrying with text format'); } catch {}
+      const secController = new AbortController();
+      const secTimeout = setTimeout(() => { try { secController.abort(); } catch {} }, 8000);
       const retryRes = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
@@ -190,9 +200,11 @@ export default async (req: Request) => {
           messages: [
             { role: 'user', content: [{ type: 'text', text: `${userText}` }] }
           ]
-        })
+        }),
+        signal: secController.signal as any
       });
       dbg('response (secondary text) status', retryRes.status);
+      try { clearTimeout(secTimeout); } catch {}
       if (retryRes.ok) {
         const retryData = await retryRes.json();
         const retryChoice = retryData?.choices?.[0];
