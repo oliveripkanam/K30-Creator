@@ -73,6 +73,12 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 	React.useEffect(() => {
 		const onRefresh = () => setRefreshTick((v) => v + 1);
 		window.addEventListener('k30:streaks:refresh', onRefresh);
+		window.addEventListener('k30:history:refresh', onRefresh);
+		// Also refresh when tab gains focus or becomes visible
+		const onVis = () => { if (document.visibilityState === 'visible') setRefreshTick(v => v + 1); };
+		const onFocus = () => setRefreshTick(v => v + 1);
+		document.addEventListener('visibilitychange', onVis);
+		window.addEventListener('focus', onFocus);
 		return () => window.removeEventListener('k30:streaks:refresh', onRefresh);
 	}, []);
 
