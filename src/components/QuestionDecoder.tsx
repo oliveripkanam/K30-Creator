@@ -322,6 +322,18 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             body: JSON.stringify(payload)
           });
           console.log('[decoder] /.netlify/functions/ai-decode status', res.status);
+          // Final retry: small backoff and text-only to reduce payload
+          if (!res.ok && res.status >= 500) {
+            try { await new Promise(r => setTimeout(r, 600)); } catch {}
+            const textOnly = { ...payload, images: undefined } as any;
+            console.log('[decoder] retrying functions text-only');
+            res = await fetch('/.netlify/functions/ai-decode', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(textOnly)
+            });
+            console.log('[decoder] functions text-only status', res.status);
+          }
         }
         if (res.ok) {
           const data = await res.json();
