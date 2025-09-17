@@ -18,6 +18,7 @@ interface SolutionSummary {
   unit: string;
   workingSteps: string[];
   keyFormulas: string[];
+  applications?: string[];
 }
 
 interface SolutionSummaryProps {
@@ -45,27 +46,7 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
   let answerLog: Array<{ step: number; explanation?: string }> = [];
   try { answerLog = (window as any).__k30_answerLog || []; } catch {}
 
-  const deriveKeyPoints = (): string[] => {
-    const points: string[] = [];
-    const push = (s?: string) => {
-      const t = (s || '').toString().trim();
-      if (!t) return;
-      const norm = t.replace(/\s+/g, ' ');
-      if (!points.some(p => p.toLowerCase() === norm.toLowerCase())) points.push(norm);
-    };
-    // 1) From working steps
-    (solution.workingSteps || []).forEach(push);
-    // 2) From MCQ explanations (first sentence)
-    answerLog.forEach((it) => {
-      const exp = (it?.explanation || '').toString();
-      const first = exp.split(/(?<=[.!?])\s+/)[0];
-      push(first);
-    });
-    // 3) From key formulas as text points
-    (solution.keyFormulas || []).forEach(push);
-    return points.slice(0, 8);
-  };
-  const keyPoints = deriveKeyPoints();
+  const applications = Array.isArray((solution as any).applications) ? (solution as any).applications : [];
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
       {/* Header */}
@@ -196,23 +177,23 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
           </CardContent>
         </Card>
 
-        {/* Key Points */}
+        {/* Real-world Applications */}
         <Card>
           <CardHeader>
-            <CardTitle>Key Points</CardTitle>
-            <CardDescription>Important takeaways extracted from your solution</CardDescription>
+            <CardTitle>Real-world Applications</CardTitle>
+            <CardDescription>Where this concept/calculation is actually used</CardDescription>
           </CardHeader>
           <CardContent>
-            {keyPoints.length ? (
+            {applications.length ? (
               <ul className="space-y-2">
-                {keyPoints.map((p, i) => (
+                {applications.map((p, i) => (
                   <li key={i} className="bg-blue-50 p-3 rounded-lg border border-blue-200 text-sm">
                     {p}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No key points extracted.</p>
+              <p className="text-sm text-muted-foreground">No applications available.</p>
             )}
           </CardContent>
         </Card>

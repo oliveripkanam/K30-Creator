@@ -1,7 +1,7 @@
 // Types from @netlify/functions removed for portability in local linting
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
-type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[] };
+type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[]; applications?: string[] };
 type ImageItem = { base64: string; mimeType: string };
 type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
@@ -434,6 +434,7 @@ export default async (req: Request) => {
     if (!Array.isArray(ensured.solution.workingSteps)) ensured.solution.workingSteps = [];
     if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
     if (!Array.isArray((ensured.solution as any).keyPoints)) (ensured.solution as any).keyPoints = [];
+    if (!Array.isArray((ensured.solution as any).applications)) (ensured.solution as any).applications = [];
 
     // Preferred: build working steps from the model plan when present
     try {
@@ -522,10 +523,11 @@ export default async (req: Request) => {
           result: m?.calculationStep?.result || ''
         }))
       };
-      const synthInstruction = `Return ONLY JSON: { workingSteps: string[], keyPoints: string[] }.
+      const synthInstruction = `Return ONLY JSON: { workingSteps: string[], keyPoints: string[], applications: string[] }.
 Rules:
 - workingSteps: 3-6 ordered, imperative, concrete actions. For quantitative: include (1) a governing relation (e.g., F = ma / v = u + at) and (2) one explicit substitution with units.
-- keyPoints: 2-4 DISTINCT, SHORT noun-phrases (≤ 10 words each). No leading verbs like 'apply/recognize/identify/substitute'. No overlap with workingSteps. Avoid generic advice. Prefer constants or laws (e.g., 'g ≈ 9.81 m/s² near Earth', 'Uniform acceleration in vacuum').`;
+- keyPoints: 2-4 DISTINCT, SHORT noun-phrases (≤ 10 words each). No leading verbs like 'apply/recognize/identify/substitute'. No overlap with workingSteps. Avoid generic advice. Prefer constants or laws (e.g., 'g ≈ 9.81 m/s² near Earth', 'Uniform acceleration in vacuum').
+- applications: 2-4 concise real-world uses or contexts (≤ 12 words each) where this calculation or concept is applied. They must be concrete contexts (e.g., 'Drop-test timing for protective gear', 'Projectile motion range estimation'), not steps or definitions.`;
       const synthRes = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
         body: JSON.stringify({
@@ -544,6 +546,7 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
           const sj = JSON.parse(sc);
           let steps = Array.isArray(sj.workingSteps) ? sj.workingSteps.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
           let points = Array.isArray(sj.keyPoints) ? sj.keyPoints.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+          let apps = Array.isArray(sj.applications) ? sj.applications.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
           const isGeneric = (s: string) => /proceed step-by-step|use the correct formula|substitute numbers/i.test(s);
           steps = Array.from(new Set(steps.filter(s => !isGeneric(s)))).slice(0, 6);
           // Enforce relation + substitution presence for quantitative mode
@@ -577,46 +580,32 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
           points = Array.from(new Set(points.filter(p => !wsSet.has(p.toLowerCase()) && !isGeneric(p))));
           ensured.solution.workingSteps = steps.length ? steps : ensured.solution.workingSteps;
           (ensured.solution as any).keyPoints = points.length ? points : (ensured.solution as any).keyPoints;
+          // Applications: short, concrete real-world contexts; remove items that look like steps
+          const simplifyApp = (p: string): string => String(p || '').trim().replace(/\.$/, '').split(/\s+/).slice(0, 12).join(' ');
+          const looksLikeStep = (s: string) => /substitute|compute|use|apply|identify|recognize|derive|select/i.test(s);
+          apps = apps.map(simplifyApp).filter(a => a && !looksLikeStep(a));
+          (ensured.solution as any).applications = Array.from(new Set(apps)).slice(0, 4);
           try { console.log('[fn decode] synthesis result', { steps: ensured.solution.workingSteps, keyPoints: (ensured.solution as any).keyPoints }); } catch {}
         } catch {}
       }
     } catch {}
 
-    // STEP 3.1: Enforce 1:1 alignment between workingSteps and MCQs (exact same length)
+    // STEP 3.1: Let the model decide step count; if too few, top-up from MCQs without filler
     try {
-      const desired = (ensured.mcqs || []).length;
+      const minSteps = Math.min(6, Math.max(3, Math.ceil((ensured.mcqs || []).length / 2)));
       const existing = Array.isArray(ensured.solution.workingSteps) ? ensured.solution.workingSteps : [];
-      if (desired > 0 && existing.length !== desired) {
-        const compressFormula = (s: string): string => String(s || '')
-          .replace(/\s+/g, ' ')
-          .replace(/\s*=\s*/g, ' = ')
-          .replace(/\s*\+\s*/g, ' + ')
-          .replace(/\s*-\s*/g, ' - ')
-          .replace(/\s*\*\s*/g, ' * ')
-          .replace(/\s*\/\s*/g, ' / ')
-          .trim();
-        const buildStepFromMcq = (m: any): string => {
-          const text = `${m?.question || ''} ${m?.explanation || ''} ${(m?.calculationStep?.formula) || ''} ${(m?.calculationStep?.substitution) || ''}`;
-          // Prefer a formula-based imperative
-          const f1 = text.match(/\b[A-Za-z][A-Za-z0-9]*\s*=\s*[-+*/A-Za-z0-9()^··\s]+/);
-          if (f1) return `Use ${compressFormula(f1[0]).slice(0, 60)}.`;
-          // If numbers and units present, make a substitution step
-          const hasNums = /\d/.test(text);
-          if (hasNums) return 'Substitute known values with units and evaluate.';
-          // Conceptual: compress question/explanation to an actionable statement
-          let s = String(m?.question || m?.explanation || '').trim();
-          s = s.replace(/^\s*(which|what|choose|select)\b[\s\S]*?\b(is|are)\b\s*/i, '')
-               .replace(/^\s*(which|what)\b[\s\S]*?\?/i, '')
-               .replace(/^\s*(in|within)\s+a\s+vacuum\b/i, 'In a vacuum, ')
-               .replace(/\s+/g, ' ')
-               .replace(/\.$/, '')
-               .trim();
-          if (/vacuum/i.test(s)) return 'Recognize uniform acceleration in a vacuum.';
-          return s ? `Identify: ${s.slice(0, 80)}.` : 'State the next required fact.';
-        };
-        const aligned: string[] = (ensured.mcqs || []).map((m: any) => buildStepFromMcq(m));
-        ensured.solution.workingSteps = aligned.slice(0, desired);
-        try { console.log('[fn decode] aligned workingSteps count', { desired, steps: ensured.solution.workingSteps.length }); } catch {}
+      if (existing.length < minSteps) {
+        const compress = (s: string) => String(s || '').replace(/\s+/g, ' ').trim();
+        const extra: string[] = [];
+        for (const m of (ensured.mcqs || [])) {
+          const text = `${m?.explanation || ''} ${m?.question || ''}`;
+          const f = text.match(/\b[A-Za-z][A-Za-z0-9]*\s*=\s*[-+*/A-Za-z0-9()^··\s]+/);
+          if (f) { extra.push(`Use ${compress(f[0]).slice(0, 60)}.`); continue; }
+          if (/\d/.test(text)) { extra.push('Substitute known values with units and evaluate.'); continue; }
+          if (/vacuum/i.test(text)) { extra.push('Recognize uniform acceleration in a vacuum.'); continue; }
+        }
+        const merged = Array.from(new Set([ ...existing, ...extra ])).slice(0, 6);
+        ensured.solution.workingSteps = merged;
       }
     } catch {}
 
