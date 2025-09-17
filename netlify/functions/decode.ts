@@ -1,7 +1,7 @@
 // Types from @netlify/functions removed for portability in local linting
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
-type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[]; applications?: string[] };
+type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[]; applications?: string[]; pitfalls?: string[] };
 type ImageItem = { base64: string; mimeType: string };
 type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
@@ -435,6 +435,7 @@ export default async (req: Request) => {
     if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
     if (!Array.isArray((ensured.solution as any).keyPoints)) (ensured.solution as any).keyPoints = [];
     if (!Array.isArray((ensured.solution as any).applications)) (ensured.solution as any).applications = [];
+    if (!Array.isArray((ensured.solution as any).pitfalls)) (ensured.solution as any).pitfalls = [];
 
     // Preferred: build working steps from the model plan when present
     try {
@@ -587,6 +588,52 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
           (ensured.solution as any).applications = Array.from(new Set(apps)).slice(0, 4);
           try { console.log('[fn decode] synthesis result', { steps: ensured.solution.workingSteps, keyPoints: (ensured.solution as any).keyPoints }); } catch {}
         } catch {}
+      }
+    } catch {}
+
+    // STEP 4: Dedicated pitfalls synthesis to avoid repetition and ensure relevance
+    try {
+      const pitInstruction = `Return ONLY JSON: { pitfalls: string[] }.
+Rules:
+- Generate 3-5 common mistakes SPECIFIC to the formulas/plan used above.
+- Each item ≤ 14 words, starts with a noun phrase (no verbs like 'use/apply/recognize').
+- Avoid duplicates and generic advice.`;
+      const pitRes = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+          messages: [ { role: 'user', content: [ { type: 'text', text: `Context:
+${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormulas, steps: ensured.solution.workingSteps }).slice(0, 4000)}` }, { type: 'text', text: pitInstruction } ] } ],
+          max_tokens: 220
+        })
+      });
+      dbg('step4(pitfalls) status', pitRes.status);
+      if (pitRes.ok) {
+        const pd = await pitRes.json();
+        const pc = pd?.choices?.[0]?.message?.content || '';
+        try {
+          const pj = JSON.parse(pc);
+          let pits = Array.isArray(pj.pitfalls) ? pj.pitfalls.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+          // Final filtering: remove items that look like steps or are generic
+          const looksLikeStep = (s: string) => /substitute|compute|use|apply|identify|recognize|derive|select/i.test(s);
+          const isGeneric = (s: string) => /step-by-step|correct formula|units properly/i.test(s);
+          pits = pits.filter(p => p && !looksLikeStep(p) && !isGeneric(p));
+          (ensured.solution as any).pitfalls = Array.from(new Set(pits)).slice(0, 5);
+          try { console.log('[fn decode] pitfalls result', (ensured.solution as any).pitfalls); } catch {}
+        } catch {}
+      }
+      // If still empty, backfill from a static map keyed by known formulas
+      if (!(ensured.solution as any).pitfalls?.length) {
+        const statics: Record<string, string[]> = {
+          's=ut+1/2at^2': [ 'Confusing s = v·t with constant-acceleration motion', 'Dropping 1/2 in 1/2·a·t² term', 'Using u = 0 when initial velocity is nonzero' ],
+          'v=u+at': [ 'Wrong sign for a when direction is opposite', 'Mixing m/s with km/h', 'Assuming constant a when not stated' ],
+          'F=ma': [ 'Using weight instead of mass for m', 'Forgetting net force (vector sum) before F = m·a', 'Unit mismatch N vs kg·m/s²' ],
+          'PE=mgh': [ 'Using wrong h reference level', 'Using g with incorrect sign convention' ]
+        };
+        const base: string[] = [];
+        for (const k of (ensured.solution.keyFormulas || [])) { if (statics[k]) base.push(...statics[k]); }
+        (ensured.solution as any).pitfalls = Array.from(new Set(base)).slice(0, 5);
       }
     } catch {}
 
