@@ -56,7 +56,7 @@ function TrendSparkline({ userId }: { userId: string }) {
         // 1) Fetch last 10 questions for this user
         const { data: qRows, error: qErr } = await supabase
           .from('questions')
-          .select('id, decoded_at, marks, time_spent_minutes, tokens_earned')
+          .select('id, decoded_at, marks, time_spent_minutes, time_spent_seconds, tokens_earned')
           .eq('user_id', userId)
           .order('decoded_at', { ascending: false })
           .limit(10);
@@ -88,7 +88,7 @@ function TrendSparkline({ userId }: { userId: string }) {
             if (isTrue) correct += 1;
           }
           const acc = Math.round((correct / total) * 100);
-          const secs = Math.max(0, Math.round((q.time_spent_minutes || 0) * 60));
+          const secs = Math.max(0, Math.round(((q.time_spent_seconds ?? null) != null ? Number(q.time_spent_seconds) : (q.time_spent_minutes || 0) * 60)));
           const mm = Math.floor(secs / 60); const ss = secs % 60;
           const timeFmt = mm <= 0 ? `${ss}s` : `${mm} min ${ss}s`;
           const label = `${new Date(q.decoded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} • ${acc}% • ${q.marks || 0} marks • ${timeFmt} • ${q.tokens_earned || 0} tokens`;

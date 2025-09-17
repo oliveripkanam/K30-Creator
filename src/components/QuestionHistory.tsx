@@ -104,7 +104,7 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
           completedAt: new Date(q.decoded_at),
           tokensEarned: q.tokens_earned || 0,
           mcqsGenerated: q.marks || 0,
-          timeSpent: q.time_spent_minutes || 0,
+          timeSpent: ((q.time_spent_seconds ?? null) != null ? Number(q.time_spent_seconds) / 60 : (q.time_spent_minutes || 0)),
           solutionSummary: q.solution_summary ? JSON.parse(q.solution_summary) : { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] }
         }));
         setCompletedQuestions(mapped);

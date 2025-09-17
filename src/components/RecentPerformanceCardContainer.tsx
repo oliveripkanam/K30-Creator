@@ -69,7 +69,7 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
       // Fetch recent questions within timeframe (cap to 30 for performance)
       const questionsPromise = supabase
         .from('questions')
-        .select('id, decoded_at, marks, time_spent_minutes, tokens_earned')
+        .select('id, decoded_at, marks, time_spent_minutes, time_spent_seconds, tokens_earned')
         .eq('user_id', userId)
         .gte('decoded_at', since.toISOString())
         .order('decoded_at', { ascending: false })
@@ -140,7 +140,7 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
           id: q.id,
           date: formatDisplayDate(q.decoded_at),
           marks: Number(q.marks || 0),
-          timeSpentMinutes: Number(q.time_spent_minutes || 0),
+          timeSpentMinutes: (() => { const secs = (q.time_spent_seconds ?? null); return secs != null ? (secs / 60) : Number(q.time_spent_minutes || 0); })(),
           tokensEarned: Number(q.tokens_earned || 0),
           accuracy: acc,
           answered: answeredCount > 0,
