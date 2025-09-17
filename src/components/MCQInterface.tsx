@@ -109,8 +109,10 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
       // Try client update first with a short timeout; otherwise REST fallback with detailed logging
       const tryClient = async () => {
         try {
-          const { supabase } = require('../lib/supabase');
-          const p = supabase
+          // Import supabase directly at module scope in this file; fallback to REST if not available
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const mod = await import('../lib/supabase');
+          const p = mod.supabase
             .from('mcq_steps')
             .update(payload)
             .eq('question_id', qid)

@@ -358,7 +358,7 @@ export default function App() {
             decoded_at: new Date().toISOString(),
             // persist provenance for focus-area views
             subject: (currentQuestion as any)?.subject || null,
-            syllabus: (currentQuestion as any)?.syllabus || null,
+            syllabus: (currentQuestion as any)?.syllabus || 'General',
             year: (currentQuestion as any)?.level || null,
           })
           .select('id')
@@ -405,6 +405,10 @@ export default function App() {
     // If already persisted, just navigate if requested
     if (hasPersisted) {
       console.log('[persist] already persisted; skipping');
+      // Ensure UI refreshes even if we skip heavy work
+      try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
+      try { window.dispatchEvent(new Event('k30:streaks:refresh')); } catch {}
+      try { void refreshDashboardMetrics(user.id); } catch {}
       if (navigateAfter) setCurrentState('dashboard');
       return;
     }
@@ -412,6 +416,8 @@ export default function App() {
     // If a save is in-flight, avoid duplicate work (React StrictMode will re-fire effects)
     if (isSaving) {
       console.log('[persist] save already in progress; skipping');
+      try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
+      try { window.dispatchEvent(new Event('k30:streaks:refresh')); } catch {}
       if (navigateAfter) setCurrentState('dashboard');
       return;
     }
@@ -575,7 +581,7 @@ export default function App() {
             solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
             // persist provenance for focus-area views
             subject: (currentQuestion as any)?.subject || null,
-            syllabus: (currentQuestion as any)?.syllabus || null,
+            syllabus: (currentQuestion as any)?.syllabus || 'General',
             year: (currentQuestion as any)?.level || null,
           })
           .select('id')
@@ -712,6 +718,11 @@ export default function App() {
   // Fetch totals (questions, marks, tokens) and true daily streak from DB
   const refreshDashboardMetrics = async (userId: string) => {
     try {
+      const hkKey = (isoOrDate: string | Date): string => {
+        const d = typeof isoOrDate === 'string' ? new Date(isoOrDate) : isoOrDate;
+        const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' });
+        return fmt.format(d); // YYYY-MM-DD in HK tz
+      };
       // Compute totals directly from questions (avoid view/406)
       let questionsDecoded = 0;
       let totalMarks = 0;
@@ -742,12 +753,12 @@ export default function App() {
             .eq('user_id', userId)
             .order('decoded_at', { ascending: false })
             .limit(365);
-          const set = new Set<string>((dates || []).map((r: any) => new Date(r.decoded_at).toISOString().slice(0, 10)));
+          const set = new Set<string>((dates || []).map((r: any) => hkKey(r.decoded_at)));
           let streak = 0;
           for (let i = 0; i < 365; i++) {
             const d = new Date();
             d.setDate(d.getDate() - i);
-            const key = d.toISOString().slice(0, 10);
+            const key = hkKey(d);
             if (set.has(key)) streak += 1; else break;
           }
           currentStreak = streak;

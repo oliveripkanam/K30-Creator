@@ -20,13 +20,18 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 	// Calendar month navigation state (Figma SimpleCalendar)
 	const [currentDate, setCurrentDate] = React.useState<Date>(new Date());
 	const [selectedDate, setSelectedDate] = React.useState<Date | null>(null);
+	// External refresh trigger (e.g., after a decode completes)
+	const [refreshTick, setRefreshTick] = React.useState(0);
 
 	// Activity map for current calendar month grid and for stats (last 90 days)
 	const [monthCountByDay, setMonthCountByDay] = React.useState<Record<string, number>>({});
 	const [range90CountByDay, setRange90CountByDay] = React.useState<Record<string, number>>({});
 
-	const today = new Date();
-	const isToday = (d: Date) => d.toDateString() === today.toDateString();
+	const hkKey = (date: Date): string => {
+		const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' });
+		return fmt.format(date);
+	};
+	const isToday = (d: Date) => hkKey(d) === hkKey(new Date());
 	const isCurrentMonth = (d: Date) => d.getMonth() === currentDate.getMonth();
 
 	const monthYear = currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -64,7 +69,40 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 
 	const weeks = generateWeeks();
 
-	// Supabase fetch for current calendar grid (month view) with simple cache and resilient state
+	// Listen for global refresh events
+	React.useEffect(() => {
+		const onRefresh = () => setRefreshTick((v) => v + 1);
+		window.addEventListener('k30:streaks:refresh', onRefresh);
+		return () => window.removeEventListener('k30:streaks:refresh', onRefresh);
+	}, []);
+
+	// Helpers for resilient fetch
+	const getAccessToken = (): string => {
+		try {
+			for (let i = 0; i < localStorage.length; i++) {
+				const k = localStorage.key(i) || '';
+				if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+					const v = localStorage.getItem(k) || '';
+					const parsed = JSON.parse(v || '{}');
+					const t = parsed?.access_token || '';
+					if (t) return t;
+				}
+			}
+		} catch {}
+		return '';
+	};
+
+	const restSelect = async (path: string) => {
+		const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+		const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+		const token = getAccessToken();
+		if (!envUrl || !envAnon || !token) throw new Error('missing env/token');
+		const resp = await fetch(`${envUrl}/rest/v1/${path}`, { headers: { 'Authorization': `Bearer ${token}`, 'apikey': envAnon } as any });
+		if (!resp.ok) throw new Error(`rest ${path} failed ${resp.status}`);
+		return (await resp.json()) as any[];
+	};
+
+	// Supabase fetch for current calendar grid (month view) with cache and resilient state
 	React.useEffect(() => {
 		let cancelled = false;
 		const cacheKey = `k30:streaks:month:${userId}:${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
@@ -85,18 +123,27 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 				const start = new Date(weeksLocal[0][0]);
 				const end = new Date(weeksLocal[weeksLocal.length - 1][6]);
 				end.setHours(23,59,59,999);
-				const { data, error } = await supabase
-					.from('questions')
-					.select('decoded_at')
-					.eq('user_id', userId)
-					.gte('decoded_at', start.toISOString())
-					.lte('decoded_at', end.toISOString());
-				if (error) throw error;
+				let rows: any[] = [];
+				try {
+					const p = supabase
+						.from('questions')
+						.select('decoded_at')
+						.eq('user_id', userId)
+						.gte('decoded_at', start.toISOString())
+						.lte('decoded_at', end.toISOString());
+					const abort = new Promise((_, reject) => setTimeout(() => reject(new Error('month timeout')), 6000));
+					const { data, error } = (await Promise.race([p, abort])) as any;
+					if (error) throw error; rows = data || [];
+				} catch {
+					const since = encodeURIComponent(start.toISOString());
+					const until = encodeURIComponent(end.toISOString());
+					rows = await restSelect(`questions?select=decoded_at&user_id=eq.${encodeURIComponent(userId)}&decoded_at=gte.${since}&decoded_at=lte.${until}`);
+				}
 				const map: Record<string, number> = {};
-				for (const r of (data || [])) {
+				for (const r of (rows || [])) {
 					const d = new Date(r.decoded_at);
 					d.setHours(0,0,0,0);
-					const k = formatKey(d);
+					const k = hkKey(d);
 					map[k] = (map[k] || 0) + 1;
 				}
 				if (!cancelled) {
@@ -109,7 +156,7 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 		})();
 		return () => { cancelled = true; };
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [userId, currentDate]);
+	}, [userId, currentDate, refreshTick]);
 
 	// Supabase fetch for stats (last 90 days from today) with cache and resilient state
 	React.useEffect(() => {
@@ -132,18 +179,27 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 				start.setHours(0,0,0,0);
 				const end = new Date();
 				end.setHours(23,59,59,999);
-				const { data, error } = await supabase
-					.from('questions')
-					.select('decoded_at')
-					.eq('user_id', userId)
-					.gte('decoded_at', start.toISOString())
-					.lte('decoded_at', end.toISOString());
-				if (error) throw error;
+				let rows: any[] = [];
+				try {
+					const p = supabase
+						.from('questions')
+						.select('decoded_at')
+						.eq('user_id', userId)
+						.gte('decoded_at', start.toISOString())
+						.lte('decoded_at', end.toISOString());
+					const abort = new Promise((_, reject) => setTimeout(() => reject(new Error('range90 timeout')), 6000));
+					const { data, error } = (await Promise.race([p, abort])) as any;
+					if (error) throw error; rows = data || [];
+				} catch {
+					const since = encodeURIComponent(start.toISOString());
+					const until = encodeURIComponent(end.toISOString());
+					rows = await restSelect(`questions?select=decoded_at&user_id=eq.${encodeURIComponent(userId)}&decoded_at=gte.${since}&decoded_at=lte.${until}`);
+				}
 				const map: Record<string, number> = {};
-				for (const r of (data || [])) {
+				for (const r of (rows || [])) {
 					const d = new Date(r.decoded_at);
 					d.setHours(0,0,0,0);
-					const k = formatKey(d);
+					const k = hkKey(d);
 					map[k] = (map[k] || 0) + 1;
 				}
 				if (!cancelled) {
@@ -155,7 +211,7 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 			}
 		})();
 		return () => { cancelled = true; };
-	}, [userId]);
+	}, [userId, refreshTick]);
 
 	// Compute stats from last 90 days map
 	const stats = React.useMemo(() => {
@@ -166,7 +222,7 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 		for (let i = 0; i < 90; i++) {
 			const d = new Date(start);
 			d.setDate(start.getDate() + i);
-			days.push(formatKey(d));
+			days.push(hkKey(d));
 		}
 		// current streak (from today backwards)
 		let current = 0;
