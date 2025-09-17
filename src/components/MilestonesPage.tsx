@@ -58,7 +58,7 @@ export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps
   const [selected, setSelected] = useState<MilestoneView | null>(null);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-white">
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -99,7 +99,11 @@ export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps
           {milestoneViews.map((mv) => (
             <Card
               key={mv.milestone}
-              className={`cursor-pointer transition-all hover:shadow-md ${mv.status === 'completed' ? 'border-green-200 bg-green-50/50' : ''} ${mv.status === 'locked' ? 'opacity-60' : ''}`}
+              className={`cursor-pointer transition-all hover:shadow-md
+                ${mv.status === 'completed' ? 'border-green-200 bg-green-50' : ''}
+                ${mv.status === 'in-progress' ? 'border-gray-200 bg-white' : ''}
+                ${mv.status === 'locked' ? 'border-gray-200 bg-gray-50' : ''}
+              `}
               onClick={() => setSelected(mv)}
             >
               <CardContent className="p-4">
@@ -113,7 +117,7 @@ export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps
                   {mv.status === 'completed' ? `Awarded +${mv.reward}` : `+${mv.reward} tokens`}
                 </Badge>
                 <div className="space-y-2">
-                  <p className={`text-sm ${mv.status === 'completed' ? 'text-green-700' : 'text-muted-foreground'}`}>
+                  <p className={`text-sm ${mv.status === 'completed' ? 'text-green-700' : mv.status === 'locked' ? 'text-gray-500' : 'text-muted-foreground'}`}>
                     {mv.status === 'completed' ? 'Completed' : mv.status === 'in-progress' ? `In progress • ${mv.progressPercent}%` : 'Locked'}
                   </p>
                   {mv.status === 'in-progress' && (
