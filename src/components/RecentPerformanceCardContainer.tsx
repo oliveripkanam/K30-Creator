@@ -32,15 +32,62 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
     setState('loading');
     try {
       const since = computeSince(tf);
+      
+      // Helper: REST select fallback using access_token from localStorage (handles session hiccups in dev)
+      const getAccessToken = (): string => {
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i) || '';
+            if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+              const v = localStorage.getItem(k) || '';
+              const parsed = JSON.parse(v || '{}');
+              const t = parsed?.access_token || '';
+              if (t) return t;
+            }
+          }
+        } catch {}
+        return '';
+      };
+
+      const restSelect = async (path: string) => {
+        const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+        const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+        const token = getAccessToken();
+        if (!envUrl || !envAnon || !token) throw new Error('missing env/token');
+        const resp = await fetch(`${envUrl}/rest/v1/${path}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'apikey': envAnon,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation',
+          } as any,
+        });
+        if (!resp.ok) throw new Error(`rest ${path} failed ${resp.status}`);
+        return (await resp.json()) as any[];
+      };
+
       // Fetch recent questions within timeframe (cap to 30 for performance)
-      const { data: qRows, error: qErr } = await supabase
+      const questionsPromise = supabase
         .from('questions')
         .select('id, decoded_at, marks, time_spent_minutes, tokens_earned')
         .eq('user_id', userId)
         .gte('decoded_at', since.toISOString())
         .order('decoded_at', { ascending: false })
         .limit(30);
-      if (qErr) throw qErr;
+
+      // Hard timeout to avoid indefinite loading
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('questions timeout')), 6000));
+      let qRows: any[] | null = null;
+      try {
+        const { data, error } = (await Promise.race([questionsPromise, timeout])) as any;
+        if (error) throw error;
+        qRows = data || [];
+      } catch {
+        // REST fallback
+        const sinceIso = encodeURIComponent(since.toISOString());
+        qRows = await restSelect(`questions?select=id,decoded_at,marks,time_spent_minutes,tokens_earned&user_id=eq.${encodeURIComponent(userId)}&decoded_at=gte.${sinceIso}&order=decoded_at.desc&limit=30`);
+      }
+
       const questions = qRows || [];
       if (questions.length === 0) {
         setDecodes([]);
@@ -51,12 +98,21 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
 
       // Fetch mcq steps for those questions
       const ids = questions.map((q: any) => q.id);
-      const { data: sRows, error: sErr } = await supabase
-        .from('mcq_steps')
-        .select('question_id, is_correct, user_answer, correct_label')
-        .in('question_id', ids);
-      if (sErr) throw sErr;
-      const steps = sRows || [];
+      let steps: any[] = [];
+      try {
+        const stepsPromise = supabase
+          .from('mcq_steps')
+          .select('question_id, is_correct, user_answer, correct_label')
+          .in('question_id', ids);
+        const stepsTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('steps timeout')), 6000));
+        const { data, error } = (await Promise.race([stepsPromise, stepsTimeout])) as any;
+        if (error) throw error;
+        steps = data || [];
+      } catch {
+        // REST fallback with in.() filter
+        const list = `(${ids.map(id => encodeURIComponent(id)).join(',')})`;
+        steps = await restSelect(`mcq_steps?select=question_id,is_correct,user_answer,correct_label&question_id=in.${list}`);
+      }
 
       // Group steps by question and compute per-decode accuracy
       const stepsByQ = new Map<string, any[]>();
@@ -111,6 +167,13 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
   }, [userId]);
 
   React.useEffect(() => { void recompute(timeframe); }, [timeframe, recompute]);
+
+  // Refresh when a decode completes (App dispatches these events)
+  React.useEffect(() => {
+    const onRefresh = () => void recompute(timeframe);
+    window.addEventListener('k30:history:refresh', onRefresh);
+    return () => window.removeEventListener('k30:history:refresh', onRefresh);
+  }, [timeframe, recompute]);
 
   return (
     <RecentPerformanceCard
