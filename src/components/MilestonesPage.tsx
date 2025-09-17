@@ -1,9 +1,19 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { MILESTONES, MILESTONE_REWARDS } from '../constants/catalog';
+
+type MilestoneStatus = 'completed' | 'in-progress' | 'locked';
+
+interface MilestoneView {
+  milestone: number;
+  reward: number;
+  status: MilestoneStatus;
+  progressPercent: number;
+}
 
 interface MilestonesPageProps {
   questionsDecoded: number;
@@ -11,10 +21,41 @@ interface MilestonesPageProps {
 }
 
 export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps) {
-  const prev = [...MILESTONES].filter(m => m <= questionsDecoded).sort((a,b)=>a-b).pop() || 0;
-  const next = [...MILESTONES].find(m => m > questionsDecoded) || MILESTONES[MILESTONES.length - 1];
-  const pct = questionsDecoded === prev && questionsDecoded !== 0 ? 100 : Math.max(0, Math.min(100, Math.round(((questionsDecoded - prev) / (next - prev)) * 100)));
-  const toGo = Math.max(0, next - questionsDecoded);
+  const prevCompleted = useMemo(() => {
+    return [...MILESTONES].filter(m => m <= questionsDecoded).sort((a,b)=>a-b).pop() || 0;
+  }, [questionsDecoded]);
+
+  const nextMilestone = useMemo(() => {
+    return [...MILESTONES].find(m => m > questionsDecoded) || MILESTONES[MILESTONES.length - 1];
+  }, [questionsDecoded]);
+
+  const overallPct = useMemo(() => {
+    if (questionsDecoded === prevCompleted && questionsDecoded !== 0) return 100;
+    return Math.max(0, Math.min(100, Math.round(((questionsDecoded - prevCompleted) / (nextMilestone - prevCompleted)) * 100)));
+  }, [questionsDecoded, prevCompleted, nextMilestone]);
+
+  const toGo = Math.max(0, nextMilestone - questionsDecoded);
+
+  const milestoneViews: MilestoneView[] = useMemo(() => {
+    return MILESTONES.map((m) => {
+      const reward = MILESTONE_REWARDS[m] || 0;
+      let status: MilestoneStatus = 'locked';
+      if (questionsDecoded >= m) {
+        status = 'completed';
+      } else if (prevCompleted < m && nextMilestone >= m) {
+        status = 'in-progress';
+      }
+      let progressPercent = 0;
+      if (status === 'completed') progressPercent = 100;
+      else if (status === 'in-progress') {
+        const baseline = prevCompleted;
+        progressPercent = Math.max(0, Math.min(100, Math.round(((questionsDecoded - baseline) / (m - baseline)) * 100)));
+      }
+      return { milestone: m, reward, status, progressPercent };
+    });
+  }, [questionsDecoded, prevCompleted, nextMilestone]);
+
+  const [selected, setSelected] = useState<MilestoneView | null>(null);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -33,53 +74,109 @@ export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps
       </div>
 
       <div className="max-w-5xl mx-auto p-4 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Next Milestone: {next}</CardTitle>
-            <CardDescription>You're {toGo} question{toGo===1?'':'s'} away</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>{questionsDecoded} decoded</span>
-                <span>{pct}%</span>
+        {/* Next Milestone Banner */}
+        <Card className="mx-0">
+          <CardContent className="p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h2 className="text-xl font-medium">Next milestone: {nextMilestone}</h2>
+                <p className="text-muted-foreground">You're {toGo} question{toGo===1?'':'s'} away</p>
               </div>
-              <Progress value={pct} className="h-3" />
+              <Button variant="link" size="sm" className="text-primary" onClick={onBack}>View streaks</Button>
+            </div>
+            <div className="space-y-2">
+              <Progress value={overallPct} className="h-3" />
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>{questionsDecoded} decoded</span>
+                <span>{overallPct}%</span>
+              </div>
             </div>
           </CardContent>
         </Card>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {MILESTONES.map((m) => {
-            const reached = questionsDecoded >= m;
-            const reward = MILESTONE_REWARDS[m] || 0;
-            const inRange = !reached && prev < m && next >= m;
-            const localPct = inRange ? Math.max(0, Math.min(100, Math.round(((questionsDecoded - prev) / (m - prev)) * 100))) : reached ? 100 : 0;
-            return (
-              <Card key={m} className={reached ? 'border-green-300' : 'border-gray-200'}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{m} Decodes</CardTitle>
-                    {reached ? (
-                      <Badge variant="secondary">Awarded +{reward}</Badge>
-                    ) : (
-                      <Badge variant="outline">+{reward} tokens</Badge>
-                    )}
-                  </div>
-                  <CardDescription>
-                    {reached ? 'Completed' : inRange ? `In progress • ${localPct}%` : 'Locked'}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Progress value={localPct} />
-                </CardContent>
-              </Card>
-            );
-          })}
+        {/* Milestone Cards Grid */}
+        <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+          {milestoneViews.map((mv) => (
+            <Card
+              key={mv.milestone}
+              className={`cursor-pointer transition-all hover:shadow-md ${mv.status === 'completed' ? 'border-green-200 bg-green-50/50' : ''} ${mv.status === 'locked' ? 'opacity-60' : ''}`}
+              onClick={() => setSelected(mv)}
+            >
+              <CardContent className="p-4">
+                <div className="flex items-start justify-between mb-3">
+                  <h3 className="font-medium">{mv.milestone} Decodes</h3>
+                </div>
+                <Badge
+                  variant={mv.status === 'completed' ? 'default' : mv.status === 'in-progress' ? 'secondary' : 'outline'}
+                  className={`${mv.status === 'completed' ? 'bg-green-100 text-green-800 border-green-200' : ''} mb-3`}
+                >
+                  {mv.status === 'completed' ? `Awarded +${mv.reward}` : `+${mv.reward} tokens`}
+                </Badge>
+                <div className="space-y-2">
+                  <p className={`text-sm ${mv.status === 'completed' ? 'text-green-700' : 'text-muted-foreground'}`}>
+                    {mv.status === 'completed' ? 'Completed' : mv.status === 'in-progress' ? `In progress • ${mv.progressPercent}%` : 'Locked'}
+                  </p>
+                  {mv.status === 'in-progress' && (
+                    <Progress value={mv.progressPercent} className="h-2" />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
+
+      {/* Detail Modal */}
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="sm:max-w-md">
+          {selected && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selected.milestone} Decodes Milestone</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <Badge variant={selected.status === 'completed' ? 'default' : 'secondary'}>
+                    {selected.status === 'completed' ? `Awarded +${selected.reward}` : `+${selected.reward} tokens`}
+                  </Badge>
+                  <span className="text-sm text-muted-foreground">
+                    {selected.status === 'completed' ? 'Completed' : selected.status === 'in-progress' ? `${questionsDecoded}/${selected.milestone} decodes` : 'Not yet unlocked'}
+                  </span>
+                </div>
+                {selected.status === 'in-progress' && (
+                  <div className="space-y-2">
+                    <Progress value={selected.progressPercent} className="h-2" />
+                    <p className="text-sm text-muted-foreground">{selected.progressPercent}% complete</p>
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <h4 className="font-medium">How to reach this milestone:</h4>
+                  <ul className="space-y-1">
+                    {(
+                      selected.status === 'completed' ? [
+                        'Great job! You\'ve earned these tokens.',
+                        'Keep decoding to reach the next milestone.',
+                      ] : selected.status === 'in-progress' ? [
+                        'You\'re making great progress!',
+                        'Keep answering questions to reach this milestone.',
+                      ] : [
+                        'Complete previous milestones to unlock this one.',
+                        'Each question you decode brings you closer to rewards.',
+                      ]
+                    ).map((tip, idx) => (
+                      <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
+                        <span className="text-primary">•</span>
+                        {tip}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
 
