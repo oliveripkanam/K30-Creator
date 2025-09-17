@@ -9,6 +9,7 @@ import { SolutionSummaryComponent } from './components/SolutionSummary';
 import { ReviewPage } from './components/ReviewPage';
 import { QuestionHistory } from './components/QuestionHistory';
 import { QuestionDetail } from './components/QuestionDetail';
+import { MilestonesPage } from './components/MilestonesPage';
 
 interface MistakeType {
   id: string;
@@ -906,7 +907,7 @@ export default function App() {
         );
       case 'milestones':
         return (
-          <(require('./components/MilestonesPage') as any).MilestonesPage
+          <MilestonesPage
             questionsDecoded={user!.questionsDecoded}
             onBack={() => setCurrentState('dashboard')}
           />
