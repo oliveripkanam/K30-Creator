@@ -85,7 +85,7 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
       } catch {
         // REST fallback
         const sinceIso = encodeURIComponent(since.toISOString());
-        qRows = await restSelect(`questions?select=id,decoded_at,marks,time_spent_minutes,tokens_earned&user_id=eq.${encodeURIComponent(userId)}&decoded_at=gte.${sinceIso}&order=decoded_at.desc&limit=30`);
+        qRows = await restSelect(`questions?select=id,decoded_at,marks,time_spent_minutes,time_spent_seconds,tokens_earned&user_id=eq.${encodeURIComponent(userId)}&decoded_at=gte.${sinceIso}&order=decoded_at.desc&limit=30`);
       }
 
       const questions = qRows || [];
