@@ -293,7 +293,7 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
                   </svg>
                 </div>
                 <div>
-                  <p className="text-xl sm:text-2xl font-semibold">{totalTimeSpent}</p>
+                  <p className="text-xl sm:text-2xl font-semibold">{Number(totalTimeSpent).toFixed(1)}</p>
                   <p className="text-xs text-muted-foreground">Minutes</p>
                 </div>
               </div>
