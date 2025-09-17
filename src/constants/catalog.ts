@@ -32,4 +32,15 @@ export const LEVEL_OPTIONS: string[] = [
   'Form 6',
 ];
 
+export const MILESTONES: number[] = [10, 25, 50, 75, 100, 200];
+export const MILESTONE_REWARDS: Record<number, number> = {
+  10: 50,
+  25: 150,
+  50: 400,
+  75: 700,
+  100: 1200,
+  200: 3000,
+};
+
+
 

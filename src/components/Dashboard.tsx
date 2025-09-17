@@ -8,6 +8,7 @@ import { Separator } from './ui/separator';
 import { MechanicsRadarChart } from './RadarChart';
 import { supabase } from '../lib/supabase';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { MILESTONES } from '../constants/catalog';
 
 interface MistakeType {
   id: string;
@@ -36,6 +37,7 @@ interface DashboardProps {
   onStartDecoding: () => void;
   onViewHistory: () => void;
   onLogout: () => void;
+  onOpenMilestones?: () => void;
 }
 
 // Small sparkline component that queries last 10 decodes and computes accuracy
@@ -135,10 +137,14 @@ function TrendSparkline({ userId }: { userId: string }) {
   );
 }
 
-export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: DashboardProps) {
+export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onOpenMilestones }: DashboardProps) {
   const streakGoal = 30;
   const nextMilestone = Math.ceil(user.questionsDecoded / 10) * 10;
-  const progressToNextMilestone = ((user.questionsDecoded % 10) / 10) * 100;
+  const prevMilestone = [...MILESTONES].filter(m => m <= user.questionsDecoded).sort((a,b)=>a-b).pop() || 0;
+  const nextMilestoneVal = [...MILESTONES].find(m => m > user.questionsDecoded) || MILESTONES[MILESTONES.length - 1];
+  const progressToNextMilestone = user.questionsDecoded === prevMilestone && user.questionsDecoded !== 0
+    ? 100
+    : Math.max(0, Math.min(100, ((user.questionsDecoded - prevMilestone) / (nextMilestoneVal - prevMilestone)) * 100));
 
   // Mock performance data across different mechanics topics
   const performanceData = [
@@ -275,15 +281,15 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout }: Da
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          <Card>
+          <Card role="button" onClick={onOpenMilestones} className="cursor-pointer">
             <CardHeader className="pb-2 sm:pb-3">
               <CardTitle className="text-xl sm:text-2xl">{user.questionsDecoded}</CardTitle>
               <CardDescription className="text-xs sm:text-sm">Questions Decoded</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs sm:text-sm text-muted-foreground space-y-1 sm:space-y-0">
-                <span>Milestone: {nextMilestone}</span>
-                <span>{10 - (user.questionsDecoded % 10)} to go</span>
+                <span>Next milestone: {nextMilestoneVal}</span>
+                <span>{Math.max(0, nextMilestoneVal - user.questionsDecoded)} to go</span>
               </div>
               <Progress value={progressToNextMilestone} className="mt-2" />
             </CardContent>

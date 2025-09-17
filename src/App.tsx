@@ -78,7 +78,7 @@ interface SolutionSummary {
   keyFormulas: string[];
 }
 
-type AppState = 'login' | 'dashboard' | 'input' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review';
+type AppState = 'login' | 'dashboard' | 'input' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review' | 'milestones';
 const [selectedHistoryId, setSelectedHistoryId] = [undefined as any];
 
 export default function App() {
@@ -585,6 +585,27 @@ export default function App() {
         ]);
       } catch {}
       setHasPersisted(true);
+
+      // After metrics refresh, check milestones and award tokens locally
+      try {
+        const key = `k30:lastMilestoneAwarded:${user.id}`;
+        const last = parseInt(localStorage.getItem(key) || '0', 10) || 0;
+        const milestones = [10, 25, 50, 75, 100, 200];
+        const rewards: Record<number, number> = { 10: 50, 25: 150, 50: 400, 75: 700, 100: 1200, 200: 3000 };
+        let highestReached = last;
+        let awardDelta = 0;
+        for (const m of milestones) {
+          if (user.questionsDecoded + 1 >= m && m > last) {
+            awardDelta += (rewards[m] || 0);
+            highestReached = m;
+          }
+        }
+        if (awardDelta > 0) {
+          setUser((prev) => prev ? { ...prev, tokens: prev.tokens + awardDelta } : prev);
+          localStorage.setItem(key, String(highestReached));
+          try { console.log(`[milestones] awarded +${awardDelta} tokens up to ${highestReached}`); } catch {}
+        }
+      } catch {}
     } catch (e) {
       console.warn('persist completion failed', e);
     } finally {
@@ -823,6 +844,7 @@ export default function App() {
             onStartDecoding={() => setCurrentState('input')}
             onViewHistory={() => setCurrentState('history')}
             onLogout={handleLogout}
+            onOpenMilestones={() => setCurrentState('milestones')}
           />
         );
       case 'input':
@@ -880,6 +902,13 @@ export default function App() {
           <QuestionDetail
             questionId={selectedHistoryId!}
             onBack={() => setCurrentState('history')}
+          />
+        );
+      case 'milestones':
+        return (
+          <(require('./components/MilestonesPage') as any).MilestonesPage
+            questionsDecoded={user!.questionsDecoded}
+            onBack={() => setCurrentState('dashboard')}
           />
         );
       default:
