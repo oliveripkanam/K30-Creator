@@ -314,7 +314,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
         });
         console.log('[decoder] /api/ai-decode status', res.status);
         // Keep only primary path and one Netlify fallback
-        if (res.status === 404) {
+        if (res.status === 404 || res.status >= 500) {
           console.log('[decoder] trying /.netlify/functions/ai-decode');
           res = await fetch('/.netlify/functions/ai-decode', {
             method: 'POST',

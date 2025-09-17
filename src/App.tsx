@@ -666,6 +666,23 @@ export default function App() {
         try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
         try { window.dispatchEvent(new Event('k30:streaks:refresh')); } catch {}
         await updateAnswersAndMistakes(questionId, hasSessionNow);
+        // Fallback: if elapsedSeconds ended up 0 due to a race, recompute from mcq_steps answered_at bounds
+        try {
+          const { data: bounds } = await supabase
+            .from('mcq_steps')
+            .select('min:answered_at.min(), max:answered_at.max()')
+            .eq('question_id', questionId)
+            .single();
+          const tMin = bounds?.min ? new Date(bounds.min).getTime() : 0;
+          const tMax = bounds?.max ? new Date(bounds.max).getTime() : 0;
+          const diffSec = tMin && tMax && tMax >= tMin ? Math.round((tMax - tMin) / 1000) : 0;
+          if (diffSec > 0 && diffSec !== elapsedSeconds) {
+            await supabase
+              .from('questions')
+              .update({ time_spent_seconds: diffSec, time_spent_minutes: Math.round(diffSec / 60) })
+              .eq('id', questionId);
+          }
+        } catch {}
       }
       // Refresh DB-backed totals, tokens, and streak after save
       try {
