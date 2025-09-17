@@ -697,14 +697,14 @@ export default function App() {
         await updateAnswersAndMistakes(questionId, hasSessionNow);
         // Fallback: if elapsedSeconds ended up 0 due to a race, recompute from mcq_steps answered_at bounds
         try {
-          const { data: bounds } = await supabase
+          const { data: rows } = await supabase
             .from('mcq_steps')
-            .select('min:answered_at.min(), max:answered_at.max()')
+            .select('answered_at')
             .eq('question_id', questionId)
-            .single();
-          const tMin = bounds?.min ? new Date(bounds.min).getTime() : 0;
-          const tMax = bounds?.max ? new Date(bounds.max).getTime() : 0;
-          const diffSec = tMin && tMax && tMax >= tMin ? Math.round((tMax - tMin) / 1000) : 0;
+            .not('answered_at', 'is', null)
+            .order('answered_at', { ascending: true });
+          const ds = (rows || []).map((r: any) => new Date(r.answered_at).getTime()).filter((t: number) => Number.isFinite(t));
+          const diffSec = ds.length >= 2 ? Math.round((ds[ds.length - 1] - ds[0]) / 1000) : 0;
           if (diffSec > 0 && diffSec !== elapsedSeconds) {
             await supabase
               .from('questions')
