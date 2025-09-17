@@ -82,9 +82,11 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
     // Real-time persistence of the answer if a question_id is available
     try {
       const qid = (window as any).__k30_activeQuestionId as string | undefined;
-      if (qid) {
-        const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
-        const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+      if (!qid) { try { console.log('[answer] skip: no activeQuestionId'); } catch {} return; }
+
+      const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+      const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+      const getToken = () => {
         let accessToken = '';
         try {
           for (let i = 0; i < localStorage.length; i++) {
@@ -97,27 +99,54 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
             }
           }
         } catch {}
-        const label = String.fromCharCode(65 + selectedAnswer);
-        const isCorrect = selectedAnswer === currentMCQ.correctAnswer;
-        // Try client first if we have supabase globally
+        return accessToken;
+      };
+
+      const label = String.fromCharCode(65 + selectedAnswer);
+      const isCorrect = selectedAnswer === currentMCQ.correctAnswer;
+      const payload = { user_answer: label, is_correct: isCorrect, answered_at: new Date().toISOString() } as const;
+
+      // Try client update first with a short timeout; otherwise REST fallback with detailed logging
+      const tryClient = async () => {
         try {
           const { supabase } = require('../lib/supabase');
-          void supabase
+          const p = supabase
             .from('mcq_steps')
-            .update({ user_answer: label, is_correct: isCorrect, answered_at: new Date().toISOString() })
+            .update(payload)
             .eq('question_id', qid)
             .eq('step_index', currentIndex);
-        } catch {
-          // REST fallback
-          if (envUrl && envAnon && accessToken) {
-            void fetch(`${envUrl}/rest/v1/mcq_steps?question_id=eq.${qid}&step_index=eq.${currentIndex}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`, 'apikey': envAnon, 'Prefer': 'resolution=merge-duplicates' } as any,
-              body: JSON.stringify({ user_answer: label, is_correct: isCorrect, answered_at: new Date().toISOString() }),
-            }).catch(() => {});
-          }
+          const abort = new Promise((_, reject) => setTimeout(() => reject(new Error('client update timeout')), 4000));
+          const { error, status } = (await Promise.race([p, abort])) as any;
+          if (error) throw Object.assign(error, { status });
+          try { console.log('[answer] client ok', { step: currentIndex, qid }); } catch {}
+          return true;
+        } catch (e) {
+          try { console.warn('[answer] client failed; will REST fallback', e); } catch {}
+          return false;
         }
-      }
+      };
+
+      const tryRest = async () => {
+        try {
+          const token = getToken();
+          if (!(envUrl && envAnon && token)) throw new Error('missing env/token');
+          const res = await fetch(`${envUrl}/rest/v1/mcq_steps?question_id=eq.${qid}&step_index=eq.${currentIndex}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': envAnon, 'Prefer': 'resolution=merge-duplicates' } as any,
+            body: JSON.stringify(payload),
+          });
+          const txt = await res.text();
+          if (!res.ok) throw new Error(`REST ${res.status}: ${txt}`);
+          try { console.log('[answer] REST ok', { step: currentIndex, qid }); } catch {}
+        } catch (e) {
+          try { console.error('[answer] REST failed', e); } catch {}
+        }
+      };
+
+      void (async () => {
+        const ok = await tryClient();
+        if (!ok) await tryRest();
+      })();
     } catch {}
   };
 
