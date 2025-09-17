@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from './ui/select';
 import { SUBJECTS, SYLLABUS_OPTIONS, LEVEL_OPTIONS } from '../constants/catalog';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
 interface Question {
   id: string;
@@ -38,6 +39,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
   const [subject, setSubject] = useState<string>('Maths');
   const [syllabus, setSyllabus] = useState<string>('');
   const [level, setLevel] = useState<string>('');
+  const [autoMarks, setAutoMarks] = useState<boolean>(false);
 
   const prevent = (e: React.DragEvent) => {
     e.preventDefault();
@@ -131,10 +133,27 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
         break;
     }
 
+    // Estimate marks if auto mode is enabled (client-side heuristic)
+    const decideMarks = (): number => {
+      if (!autoMarks) return marks;
+      const text = activeTab === 'text' ? textContent : '';
+      const len = (text || '').trim().length;
+      let guess = 4;
+      if (type === 'file') guess = 6;
+      if (type === 'photo') guess = 5;
+      if (len > 600) guess = 7; else if (len > 300) guess = 6; else if (len > 140) guess = 5; else if (len > 60) guess = 4; else guess = 3;
+      if (/(\(i\)|\(ii\)|\(iii\)|\ba\)|\bb\)|\bc\))/i.test(text)) guess += 1;
+      const digits = (text.match(/\d/g) || []).length; if (digits > 10) guess += 1;
+      if (/math|phys/i.test(subject)) guess += 1;
+      if (/biology|chem/i.test(subject) && guess > 6) guess -= 1;
+      if (uploadFile && /\.pdf$/i.test(uploadFile.name)) guess = Math.max(5, guess);
+      return Math.max(1, Math.min(8, guess));
+    };
+
     const question: Question = {
       id: Date.now().toString(),
       content,
-      marks,
+      marks: decideMarks(),
       type,
       timestamp: new Date(),
       fileData,
@@ -399,6 +418,7 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                   value={marks}
                   onChange={(e) => setMarks(parseInt(e.target.value) || 1)}
                   className="w-24"
+                  disabled={autoMarks}
                 />
                 <div className="grid grid-cols-4 sm:flex gap-2 sm:gap-1 w-full sm:w-auto">
                   {[1, 2, 3, 4, 5, 6, 7, 8].map((mark) => (
@@ -408,14 +428,34 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                       size="sm"
                       onClick={() => setMarks(mark)}
                       className="h-10 sm:h-8"
+                      disabled={autoMarks}
                     >
                       {mark}
                     </Button>
                   ))}
                 </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    type="button"
+                    variant={autoMarks ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setAutoMarks(v => !v)}
+                    className="h-10 sm:h-8"
+                  >
+                    {autoMarks ? 'AI will decide' : 'Let AI decide'}
+                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button aria-label="What is this?" className="inline-flex items-center justify-center w-6 h-6 rounded-full border text-xs">?</button>
+                    </TooltipTrigger>
+                    <TooltipContent sideOffset={6}>
+                      Lets the AI choose a suitable number of MCQs based on the question. Your numeric input and quick-pick buttons are disabled while enabled.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                This will determine how many step-by-step questions we create
+                {autoMarks ? 'AI will pick a suitable number of steps after you submit.' : 'This determines how many step-by-step questions we create.'}
               </p>
             </div>
 

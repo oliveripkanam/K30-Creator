@@ -49,6 +49,8 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState('');
   const [isComplete, setIsComplete] = useState(false);
+  // Respect a client hint where marks may have been auto-decided in the input stage.
+  // We do not change existing decode logic; we only use question.marks as provided.
 
   // -----------------------------
   // Hint improvement utilities
