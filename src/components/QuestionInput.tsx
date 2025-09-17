@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel, SelectSeparator } from './ui/select';
 import { SUBJECTS, SYLLABUS_OPTIONS, LEVEL_OPTIONS } from '../constants/catalog';
 
 interface Question {
@@ -181,7 +181,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
           <CardHeader>
             <CardTitle>Add Your Question</CardTitle>
             <CardDescription className="text-sm">
-              Choose how you'd like to input your question. We send text/images directly to AI (no extraction step).
+              Choose how you'd like to input your question.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 sm:space-y-6">
@@ -220,9 +220,19 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
                     <SelectValue placeholder="Select year/form (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    {LEVEL_OPTIONS.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
+                    <SelectGroup>
+                      <SelectLabel className="font-semibold">Year:</SelectLabel>
+                      {LEVEL_OPTIONS.filter((s) => s.startsWith('Year ')).map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                    <SelectSeparator />
+                    <SelectGroup>
+                      <SelectLabel className="font-semibold">Form:</SelectLabel>
+                      {LEVEL_OPTIONS.filter((s) => s.startsWith('Form ')).map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
