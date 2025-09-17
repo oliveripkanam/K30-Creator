@@ -18,9 +18,10 @@ interface MilestoneView {
 interface MilestonesPageProps {
   questionsDecoded: number;
   onBack: () => void;
+  onOpenStreaks?: () => void;
 }
 
-export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps) {
+export function MilestonesPage({ questionsDecoded, onBack, onOpenStreaks }: MilestonesPageProps) {
   const prevCompleted = useMemo(() => {
     return [...MILESTONES].filter(m => m <= questionsDecoded).sort((a,b)=>a-b).pop() || 0;
   }, [questionsDecoded]);
@@ -82,7 +83,7 @@ export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps
                 <h2 className="text-xl font-medium">Next milestone: {nextMilestone}</h2>
                 <p className="text-muted-foreground">You're {toGo} question{toGo===1?'':'s'} away</p>
               </div>
-              <Button variant="link" size="sm" className="text-primary" onClick={onBack}>View streaks</Button>
+              <Button variant="link" size="sm" className="text-primary" onClick={onOpenStreaks || onBack}>View streaks</Button>
             </div>
             <div className="space-y-2">
               <Progress value={overallPct} className="h-3" />

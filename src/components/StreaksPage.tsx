@@ -91,25 +91,50 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
     return () => { cancelled = true; };
   }, [userId, range, days]);
 
-  // Prepare week columns (Mon-first) — simple and robust for rendering as flex columns
-  const first = days[0];
-  const normalizeMonFirst = (d: Date) => (d.getDay() + 6) % 7; // Mon=0..Sun=6
-  const padStart = normalizeMonFirst(first);
-  const calendarCells: (Date | null)[] = Array(padStart).fill(null).concat(days);
-  // Pad end to full weeks so the last column has 7 cells
-  const remainder = calendarCells.length % 7;
-  if (remainder !== 0) {
-    for (let i = 0; i < 7 - remainder; i++) calendarCells.push(null);
-  }
-  const weeks: (Date | null)[][] = [];
-  for (let i = 0; i < calendarCells.length; i += 7) weeks.push(calendarCells.slice(i, i + 7));
+  // Monthly calendar data (Figma-like layout)
+  const today = new Date();
+  const startDate = new Date(days[0]);
+  const monthBlocks = React.useMemo(() => {
+    const blocks: Array<{ year: number; month: number; name: string; weeks: Date[][] }> = [];
+    let cur = new Date(startDate);
+    cur.setDate(1);
+    while (cur <= today) {
+      const month = cur.getMonth();
+      const year = cur.getFullYear();
+      const monthStart = new Date(year, month, 1);
+      const monthEnd = new Date(year, month + 1, 0);
+      const calStart = new Date(monthStart);
+      calStart.setDate(monthStart.getDate() - monthStart.getDay()); // start on Sunday
+      const calEnd = new Date(monthEnd);
+      calEnd.setDate(monthEnd.getDate() + (6 - monthEnd.getDay())); // end on Saturday
+      const weeks: Date[][] = [];
+      let weekStart = new Date(calStart);
+      while (weekStart <= calEnd) {
+        const wk: Date[] = [];
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(weekStart);
+          d.setDate(weekStart.getDate() + i);
+          wk.push(d);
+        }
+        weeks.push(wk);
+        weekStart.setDate(weekStart.getDate() + 7);
+      }
+      blocks.push({ year, month, name: monthStart.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }), weeks });
+      cur = new Date(year, month + 1, 1);
+    }
+    return blocks;
+  }, [startDate, today]);
 
   const todayKey = formatKey(new Date(new Date().setHours(0,0,0,0)));
-
-  const levelFor = (c: number) => c === 0 ? 'bg-gray-200' : c < 2 ? 'bg-green-200' : c < 4 ? 'bg-green-400' : 'bg-green-600';
+  const isInRange = (d: Date) => d >= startDate && d <= today;
+  const isSameMonth = (d: Date, m: number) => d.getMonth() === m;
+  const levelFor = (c: number, dim: boolean) => {
+    const base = c === 0 ? 'bg-gray-50 border-gray-200' : c < 2 ? 'bg-green-50 border-green-200' : c < 4 ? 'bg-green-100 border-green-300' : 'bg-green-200 border-green-400';
+    return base + (dim ? ' opacity-30' : '');
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-white">
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -153,23 +178,39 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
             <CardDescription>Each cell shows questions completed that day</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <div className="flex gap-1" style={{ minHeight: '7rem' }}>
-                {weeks.map((w, wi) => (
-                  <div key={wi} className="flex flex-col gap-1">
-                    {w.map((d, ri) => {
-                      const k = d ? formatKey(d) : '';
-                      const count = d ? (countByDay[k] || 0) : 0;
-                      const isToday = d && k === todayKey;
-                      return (
-                        <div key={ri} className={`w-3.5 h-3.5 rounded ${d ? levelFor(count) : 'bg-transparent'} ${isToday ? 'ring-2 ring-blue-500' : ''}`} title={d ? `${k} • ${count} question${count===1?'':'s'}` : ''} />
-                      );
-                    })}
+            <div className="space-y-8">
+              {monthBlocks.map((blk) => (
+                <div key={`${blk.year}-${blk.month}`} className="space-y-2">
+                  <h3 className="text-lg font-medium">{blk.name}</h3>
+                  <div className="grid grid-cols-7 gap-1 mb-2">
+                    {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                      <div key={d} className="text-center text-sm text-muted-foreground py-1">{d}</div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                  <div className="space-y-1">
+                    {blk.weeks.map((w, wi) => (
+                      <div key={wi} className="grid grid-cols-7 gap-1">
+                        {w.map((d, di) => {
+                          const k = formatKey(d);
+                          const c = countByDay[k] || 0;
+                          const dim = !isSameMonth(d, blk.month) || !isInRange(d);
+                          const isTodayCell = k === todayKey;
+                          return (
+                            <div key={di} className={`relative w-12 h-12 border rounded-lg ${levelFor(c, dim)} ${isTodayCell ? 'ring-2 ring-primary ring-offset-2' : ''}`} title={`${k} • ${c} question${c===1?'':'s'}`}>
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className={`text-sm ${dim ? 'text-muted-foreground' : 'text-foreground'}`}>{d.getDate()}</span>
+                              </div>
+                              {c > 0 && !dim && <div className="absolute top-1 right-1 w-2 h-2 bg-green-500 rounded-full" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-3">
+            <div className="flex items-center space-x-2 text-xs text-muted-foreground mt-4">
               <span>Less</span>
               <div className="w-4 h-3 rounded bg-gray-200" />
               <div className="w-4 h-3 rounded bg-green-200" />

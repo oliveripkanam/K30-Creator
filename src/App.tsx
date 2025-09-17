@@ -912,6 +912,7 @@ export default function App() {
           <MilestonesPage
             questionsDecoded={user!.questionsDecoded}
             onBack={() => setCurrentState('dashboard')}
+            onOpenStreaks={() => setCurrentState('streaks')}
           />
         );
       case 'streaks':
