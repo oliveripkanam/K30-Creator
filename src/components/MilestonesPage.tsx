@@ -154,7 +154,7 @@ export function MilestonesPage({ questionsDecoded, onBack }: MilestonesPageProps
                   </div>
                 )}
                 <div className="space-y-2">
-                  <h4 className="font-medium">How to reach this milestone:</h4>
+                  <h4 className="font-medium">Progress</h4>
                   <ul className="space-y-1">
                     {(
                       selected.status === 'completed' ? [
