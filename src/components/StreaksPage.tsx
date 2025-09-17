@@ -64,14 +64,26 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 
 	const weeks = generateWeeks();
 
-	// Supabase fetch for current calendar grid (month view)
+	// Supabase fetch for current calendar grid (month view) with simple cache and resilient state
 	React.useEffect(() => {
 		let cancelled = false;
+		const cacheKey = `k30:streaks:month:${userId}:${currentDate.getFullYear()}-${String(currentDate.getMonth()+1).padStart(2,'0')}`;
+		// Seed from cache for instant paint on remount
+		try {
+			const cached = localStorage.getItem(cacheKey);
+			if (cached) {
+				const parsed = JSON.parse(cached || '{}');
+				if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+					setMonthCountByDay(parsed as Record<string, number>);
+				}
+			}
+		} catch {}
 		(async () => {
 			try {
-				if (weeks.length === 0) return;
-				const start = new Date(weeks[0][0]);
-				const end = new Date(weeks[weeks.length - 1][6]);
+				const weeksLocal = generateWeeks();
+				if (weeksLocal.length === 0) return;
+				const start = new Date(weeksLocal[0][0]);
+				const end = new Date(weeksLocal[weeksLocal.length - 1][6]);
 				end.setHours(23,59,59,999);
 				const { data, error } = await supabase
 					.from('questions')
@@ -87,17 +99,32 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 					const k = formatKey(d);
 					map[k] = (map[k] || 0) + 1;
 				}
-				if (!cancelled) setMonthCountByDay(map);
-			} catch {
-				if (!cancelled) setMonthCountByDay({});
+				if (!cancelled) {
+					setMonthCountByDay(map);
+					try { localStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
+				}
+			} catch (e) {
+				// Keep previous state on failure; avoid wiping UI
 			}
 		})();
 		return () => { cancelled = true; };
-	}, [userId, weeks]);
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [userId, currentDate]);
 
-	// Supabase fetch for stats (last 90 days from today)
+	// Supabase fetch for stats (last 90 days from today) with cache and resilient state
 	React.useEffect(() => {
 		let cancelled = false;
+		const cacheKey = `k30:streaks:range90:${userId}`;
+		// Seed from cache for instant paint
+		try {
+			const cached = localStorage.getItem(cacheKey);
+			if (cached) {
+				const parsed = JSON.parse(cached || '{}');
+				if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+					setRange90CountByDay(parsed as Record<string, number>);
+				}
+			}
+		} catch {}
 		(async () => {
 			try {
 				const start = new Date();
@@ -119,9 +146,12 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
 					const k = formatKey(d);
 					map[k] = (map[k] || 0) + 1;
 				}
-				if (!cancelled) setRange90CountByDay(map);
-			} catch {
-				if (!cancelled) setRange90CountByDay({});
+				if (!cancelled) {
+					setRange90CountByDay(map);
+					try { localStorage.setItem(cacheKey, JSON.stringify(map)); } catch {}
+				}
+			} catch (e) {
+				// Keep previous state on failure
 			}
 		})();
 		return () => { cancelled = true; };
