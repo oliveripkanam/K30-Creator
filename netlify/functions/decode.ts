@@ -47,7 +47,7 @@ export default async (req: Request) => {
   ].filter(Boolean);
   // Keep headers compact and cap overall user text for latency/limits
   const userTextHeader = headerParts.length ? `${headerParts.join(' • ')}\n` : '';
-  const userTextRaw = (userTextHeader + (text || '')).slice(0, 4000);
+  const userTextRaw = (userTextHeader + (text || '')).slice(0, 2000);
   // Minimal guardrails to keep outputs correct and structured
   const computeReq = `\n\nCompute step-by-step and choose the option that matches the computed value; verify before finalizing.`;
   const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
@@ -95,8 +95,8 @@ export default async (req: Request) => {
       body: JSON.stringify({
         response_format: { type: 'text' },
         temperature: 0.1,
-        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 1800) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ],
-        max_tokens: 600
+        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 1200) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ],
+        max_tokens: 400
       })
     });
     dbg('step1(parse) status', parseRes.status);
@@ -112,9 +112,9 @@ export default async (req: Request) => {
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
     const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
-    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 2200)}` }, { type: 'text', text: genInstruction } ];
+    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 1600)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
-    genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 2000) });
+    genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 1200) });
     // Attach images again if any
     if (hasImage) {
       for (let i = 0; i < Math.min(2, images.length); i++) {
@@ -129,7 +129,7 @@ export default async (req: Request) => {
         response_format: { type: 'json_object' },
         temperature: 0.1,
         messages: [ { role: 'user', content: genContent } ],
-        max_tokens: 900
+        max_tokens: 600
       })
     });
     dbg('step2(generate) status', res.status);
@@ -426,6 +426,36 @@ export default async (req: Request) => {
       } catch {}
     }
     dbg('success parse', { mcqs: ensured?.mcqs?.length, hasSolution: !!ensured?.solution, usage });
+
+    // Ensure solution fields exist
+    ensured.solution = ensured.solution || {};
+    if (!Array.isArray(ensured.solution.workingSteps)) ensured.solution.workingSteps = [];
+    if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
+
+    // If workingSteps missing, derive from MCQ explanations concisely
+    if (ensured.solution.workingSteps.length === 0 && Array.isArray(ensured.mcqs)) {
+      const ws: string[] = [];
+      for (const m of ensured.mcqs) {
+        const expl = String(m?.explanation || '').trim();
+        const q = String(m?.question || '').trim();
+        const line = expl || q;
+        if (line) ws.push(line.slice(0, 180));
+      }
+      ensured.solution.workingSteps = ws.slice(0, 6);
+    }
+
+    // If keyFormulas missing, extract common physics relations from explanations
+    if (ensured.solution.keyFormulas.length === 0 && Array.isArray(ensured.mcqs)) {
+      const known = [ 'v=u+at', 's=ut+1/2at^2', 'F=ma', 'P=F/A', 'W=Fs', 'p=mv', 'KE=1/2mv^2', 'PE=mgh' ];
+      const set = new Set<string>();
+      for (const m of ensured.mcqs) {
+        const t = `${m?.question || ''} ${m?.explanation || ''}`;
+        for (const k of known) { if (t.includes(k)) set.add(k); }
+        const match = t.match(/\b[FAWPs] ?= ?[a-zA-Z0-9\/\*\+\-\^\(\)]+/);
+        if (match) set.add(match[0].replace(/\s+/g,'').slice(0,20));
+      }
+      ensured.solution.keyFormulas = Array.from(set).slice(0, 3);
+    }
 
     // Do not top-up here; step2 was instructed to return exactly 'marks'
 
