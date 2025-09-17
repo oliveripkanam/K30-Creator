@@ -83,6 +83,7 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
         const qid = qrow?.id as string | undefined;
         if (!qid) return;
         try { (window as any).__k30_activeQuestionId = qid; } catch {}
+        try { window.dispatchEvent(new CustomEvent('k30:activeQuestionId', { detail: { id: qid } })); } catch {}
         // Insert steps for this question
         const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
         await supabase

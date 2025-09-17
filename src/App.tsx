@@ -434,7 +434,11 @@ export default function App() {
         solutionSummary
       };
       
-      setCompletedQuestions(prev => [completedQuestion, ...prev]);
+      setCompletedQuestions(prev => {
+        // de-duplicate by content+timestamp to avoid double append in StrictMode
+        const exists = prev.some(p => p.completedAt.getTime() === completedQuestion.completedAt.getTime() && p.content === completedQuestion.content);
+        return exists ? prev : [completedQuestion, ...prev];
+      });
       
       setUser({
         ...user,
@@ -730,7 +734,7 @@ export default function App() {
       try {
         const { data: qAgg } = await supabase
           .from('questions')
-          .select('marks, tokens_earned, id')
+          .select('marks, tokens_earned, id, time_spent_seconds')
           .eq('user_id', userId);
         if (qAgg) {
           questionsDecoded = qAgg.length;

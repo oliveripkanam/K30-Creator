@@ -123,6 +123,7 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
       }
 
       // Build decodes list (chronological ascending for chart)
+      // chronological for chart, but we will sort desc for the recent list in the Card
       const chronological = [...questions].sort((a: any, b: any) => new Date(a.decoded_at).getTime() - new Date(b.decoded_at).getTime());
       const items: DecodeAttempt[] = chronological.map((q: any) => {
         const list = stepsByQ.get(q.id) || [];
@@ -149,17 +150,21 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
       });
 
       // Aggregates
-      const attemptCount = items.length;
-      const answeredItems = items.filter(it => it.answered);
+      // De-duplicate by id in case strict-mode or event race caused duplicate inserts
+      const uniqueById = new Map<string, DecodeAttempt>();
+      for (const it of items) uniqueById.set(it.id, it);
+      const deduped = Array.from(uniqueById.values());
+      const attemptCount = deduped.length;
+      const answeredItems = deduped.filter(it => it.answered);
       const avgAccuracy = answeredItems.length > 0 ? Math.round(answeredItems.reduce((s, it) => s + it.accuracy, 0) / answeredItems.length) : 0;
-      const avgMarks = attemptCount > 0 ? Number((items.reduce((s, it) => s + it.marks, 0) / attemptCount).toFixed(1)) : 0;
-      const tokensTotal = items.reduce((s, it) => s + it.tokensEarned, 0);
-      const times = items.map(it => it.timeSpentMinutes).sort((a, b) => a - b);
+      const avgMarks = attemptCount > 0 ? Number((deduped.reduce((s, it) => s + it.marks, 0) / attemptCount).toFixed(1)) : 0;
+      const tokensTotal = deduped.reduce((s, it) => s + it.tokensEarned, 0);
+      const times = deduped.map(it => it.timeSpentMinutes).sort((a, b) => a - b);
       const mid = Math.floor(times.length / 2);
       const medianTime = times.length === 0 ? 0 : times.length % 2 === 1 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
       const aggs: PerformanceAggregates = { avgAccuracy, attemptCount, avgMarks, medianTime, tokensTotal };
 
-      setDecodes(items);
+      setDecodes(deduped);
       setAggregates(aggs);
       setState('data');
     } catch (e) {
