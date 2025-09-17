@@ -43,6 +43,9 @@ interface Question {
   type: 'photo' | 'file' | 'text';
   timestamp: Date;
   fileData?: { base64: string; mimeType: string; name: string };
+  subject?: string;
+  syllabus?: string;
+  level?: string;
 }
 
 interface CompletedQuestion extends Question {

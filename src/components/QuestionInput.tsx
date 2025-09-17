@@ -6,6 +6,8 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { SUBJECTS, SYLLABUS_OPTIONS, LEVEL_OPTIONS } from '../constants/catalog';
 
 interface Question {
   id: string;
@@ -33,9 +35,9 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
   const [activeTab, setActiveTab] = useState('text');
   const [isDraggingPhoto, setIsDraggingPhoto] = useState(false);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const [subject, setSubject] = useState<string>('Mathematics');
-  const [syllabus, setSyllabus] = useState<string>('Generic');
-  const [level, setLevel] = useState<string>('A-Level');
+  const [subject, setSubject] = useState<string>('Maths');
+  const [syllabus, setSyllabus] = useState<string>('');
+  const [level, setLevel] = useState<string>('');
 
   const prevent = (e: React.DragEvent) => {
     e.preventDefault();
@@ -187,33 +189,42 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <Label htmlFor="subject">Subject</Label>
-                <Input
-                  id="subject"
-                  placeholder="e.g., Mathematics, Physics, Chemistry"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  className="mt-2"
-                />
+                <Select value={subject} onValueChange={setSubject}>
+                  <SelectTrigger id="subject" className="mt-2">
+                    <SelectValue placeholder="Select subject" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SUBJECTS.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="syllabus">Syllabus / Board</Label>
-                <Input
-                  id="syllabus"
-                  placeholder="e.g., Cambridge, Edexcel, IB, Generic"
-                  value={syllabus}
-                  onChange={(e) => setSyllabus(e.target.value)}
-                  className="mt-2"
-                />
+                <Select value={syllabus} onValueChange={setSyllabus}>
+                  <SelectTrigger id="syllabus" className="mt-2">
+                    <SelectValue placeholder="Select syllabus (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SYLLABUS_OPTIONS.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="level">Year / Level</Label>
-                <Input
-                  id="level"
-                  placeholder="e.g., Year 8, Form 2, Grade 7, A-Level, GCSE, IB HL"
-                  value={level}
-                  onChange={(e) => setLevel(e.target.value)}
-                  className="mt-2"
-                />
+                <Select value={level} onValueChange={setLevel}>
+                  <SelectTrigger id="level" className="mt-2">
+                    <SelectValue placeholder="Select year/form (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LEVEL_OPTIONS.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
