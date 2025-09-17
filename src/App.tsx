@@ -170,20 +170,22 @@ export default function App() {
 
   const handleLogout = async () => {
     try { console.log('[auth] logout clicked'); } catch {}
-    // Best-effort revoke session on Supabase
-    try { await supabase.auth.signOut(); } catch (e) { try { console.warn('[auth] signOut error (non-fatal)', e); } catch {} }
+    // Proactively clear local tokens first so UI flips immediately
     try {
-      // Ensure any lingering OAuth hash is cleared
-      if (window.location.hash) {
-        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
-      }
-      // Remove any cached sb auth tokens for this origin
       const keys: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i) || '';
         if (k.startsWith('sb-') && k.endsWith('-auth-token')) keys.push(k);
       }
       for (const k of keys) { try { localStorage.removeItem(k); } catch {} }
+    } catch {}
+    // Revoke session on Supabase (global scope)
+    try { await supabase.auth.signOut({ scope: 'global' } as any); } catch (e) { try { console.warn('[auth] signOut error (non-fatal)', e); } catch {} }
+    try {
+      // Ensure any lingering OAuth hash is cleared
+      if (window.location.hash) {
+        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+      }
       // Clear ephemeral runtime caches
       try { sessionStorage.clear(); } catch {}
       try { (window as any).__k30_activeQuestionId = undefined; } catch {}
@@ -195,7 +197,7 @@ export default function App() {
     setCurrentState('login');
     } catch {}
     // Force a full reload to ensure any stale in-memory state is gone
-    try { setTimeout(() => window.location.assign(window.location.origin), 50); } catch {}
+    try { setTimeout(() => window.location.replace(window.location.origin), 50); } catch {}
   };
 
   // Supabase OAuth
