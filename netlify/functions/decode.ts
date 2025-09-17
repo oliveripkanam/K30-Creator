@@ -507,6 +507,62 @@ export default async (req: Request) => {
       try { console.log('[fn decode] extracted keyFormulas', ensured.solution.keyFormulas); } catch {}
     }
 
+    // STEP 3 (new): Dedicated synthesis call to produce high-quality workingSteps and keyPoints
+    try {
+      const synthPayload = {
+        mode: isConceptual ? 'conceptual' : 'quantitative',
+        summary: parsedSummary,
+        mcqs: (ensured.mcqs || []).map((m: any) => ({
+          step: Number(m.step) || 0,
+          question: String(m.question || '').slice(0, 400),
+          explanation: String(m.explanation || '').slice(0, 400),
+          correct: Array.isArray(m.options) ? String(m.options[m.correctAnswer] || m.options[0] || '').slice(0, 120) : '',
+          formula: m?.calculationStep?.formula || '',
+          substitution: m?.calculationStep?.substitution || '',
+          result: m?.calculationStep?.result || ''
+        }))
+      };
+      const synthInstruction = `Return ONLY JSON: { workingSteps: string[], keyPoints: string[] }.
+Rules:
+- workingSteps: 3-6 ordered, imperative, concrete actions. For quantitative: one step must name the governing relation (e.g., F = ma / v = u + at) and another must show a substitution (numbers + units). For conceptual: each step states the specific actionable reasoning.
+- keyPoints: 2-4 distinct, high-signal takeaways. They MUST NOT appear verbatim in workingSteps. Avoid generic advice like 'Proceed step-by-step' or 'Use the correct formula'.`;
+      const synthRes = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+        body: JSON.stringify({
+          response_format: { type: 'json_object' },
+          temperature: 0.1,
+          messages: [ { role: 'user', content: [ { type: 'text', text: `Synthesize solution sections from:
+${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthInstruction } ] } ],
+          max_tokens: 320
+        })
+      });
+      dbg('step3(synthesize) status', synthRes.status);
+      if (synthRes.ok) {
+        const sd = await synthRes.json();
+        const sc = sd?.choices?.[0]?.message?.content || '';
+        try {
+          const sj = JSON.parse(sc);
+          let steps = Array.isArray(sj.workingSteps) ? sj.workingSteps.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+          let points = Array.isArray(sj.keyPoints) ? sj.keyPoints.map((s: any) => String(s || '').trim()).filter(Boolean) : [];
+          const isGeneric = (s: string) => /proceed step-by-step|use the correct formula|substitute numbers/i.test(s);
+          steps = Array.from(new Set(steps.filter(s => !isGeneric(s)))).slice(0, 6);
+          // Enforce relation + substitution presence for quantitative mode
+          if (!isConceptual) {
+            const hasRelation = steps.some(s => /=/.test(s) && /[A-Za-z]/.test(s));
+            const hasSub = steps.some(s => /\d/.test(s) && /(=|→)/.test(s));
+            if (!hasRelation && ensured.solution.keyFormulas?.[0]) steps.unshift(`Use ${ensured.solution.keyFormulas[0]} as the governing relation.`);
+            if (!hasSub) steps.push('Substitute known values with units and evaluate.');
+          }
+          // Distinct key points
+          const wsSet = new Set(steps.map(s => s.toLowerCase()));
+          points = Array.from(new Set(points.filter(p => !wsSet.has(p.toLowerCase()) && !isGeneric(p))));
+          ensured.solution.workingSteps = steps.length ? steps : ensured.solution.workingSteps;
+          (ensured.solution as any).keyPoints = points.length ? points : (ensured.solution as any).keyPoints;
+          try { console.log('[fn decode] synthesis result', { steps: ensured.solution.workingSteps, keyPoints: (ensured.solution as any).keyPoints }); } catch {}
+        } catch {}
+      }
+    } catch {}
+
     // Always produce at least 2 key points and avoid duplicating working steps
     try {
       const kp = (ensured.solution as any).keyPoints as string[];
