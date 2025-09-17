@@ -464,9 +464,21 @@ export default async (req: Request) => {
         const expl = String(m?.explanation || '').trim();
         const q = String(m?.question || '').trim();
         const base = (expl || q);
-        // Try to split long blurbs into concise steps
-        const parts = String(base).split(/\.|;|\n|\r|•|\u2022/g).map(s => s.trim()).filter(Boolean);
-        const chosen = (parts.length > 1 ? parts : [base]).map(s => s.slice(0, 200));
+        // Split into sentences but avoid breaking decimals like 9.81
+        const rough = String(base).split(/(?<!\d)\.(?=\s+[A-Z])|;|\n|\r|•|\u2022/g).map(s => s.trim()).filter(Boolean);
+        const parts = (rough.length > 0 ? rough : [base]).map(s => s.slice(0, 220));
+        // Merge fragments that are too short or look like unit-only tails (e.g., "81 m/s²")
+        const merged: string[] = [];
+        for (const p of parts) {
+          const isTiny = p.length < 20;
+          const unitTail = /^\d+[\.,]?\d*\s*[a-zA-Z/²^\-]+$/.test(p);
+          if (merged.length > 0 && (isTiny || unitTail)) {
+            merged[merged.length - 1] = `${merged[merged.length - 1]} ${p}`.trim();
+          } else {
+            merged.push(p);
+          }
+        }
+        const chosen = (merged.length > 0 ? merged : [base]);
         for (const cand of chosen) { if (cand && !isGeneric(cand)) ws.push(cand); }
       }
       // De-duplicate and cap
@@ -507,7 +519,12 @@ export default async (req: Request) => {
       if (kp.length < 2) add('Select the governing relation first, then substitute known values and compute.');
       // Remove items that exactly equal a working step (to avoid mirror content)
       const wsSet = new Set((ensured.solution.workingSteps || []).map((s: string) => s.toLowerCase()));
-      const filtered = kp.filter(s => !wsSet.has(String(s || '').toLowerCase()));
+      let filtered = kp.filter(s => !wsSet.has(String(s || '').toLowerCase()));
+      // If still fewer than 2 items, borrow top informative steps
+      if (filtered.length < 2) {
+        const informative = (ensured.solution.workingSteps || []).filter((s: string) => /\d|[A-Za-z]{3,}/.test(s)).slice(0, 2 - filtered.length);
+        filtered = [...filtered, ...informative];
+      }
       (ensured.solution as any).keyPoints = (filtered.length ? filtered : kp).slice(0, 3);
       console.log('[fn decode] final keyPoints', (ensured.solution as any).keyPoints);
     } catch {}
