@@ -47,7 +47,7 @@ export default async (req: Request) => {
   ].filter(Boolean);
   // Keep headers compact and cap overall user text for latency/limits
   const userTextHeader = headerParts.length ? `${headerParts.join(' • ')}\n` : '';
-  const userTextRaw = (userTextHeader + (text || '')).slice(0, 6500);
+  const userTextRaw = (userTextHeader + (text || '')).slice(0, 4000);
   // Minimal guardrails to keep outputs correct and structured
   const computeReq = `\n\nCompute step-by-step and choose the option that matches the computed value; verify before finalizing.`;
   const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
@@ -74,12 +74,12 @@ export default async (req: Request) => {
     console.log('[fn decode] config', { endpointHost, hasApiKey: !!apiKey, deployment, apiVersion, url });
   } catch {}
 
-  // No custom aborts; let Azure/Netlify control timeouts to avoid premature 500s.
+  // No custom aborts on server; let Azure/Netlify control timeouts.
 
   try {
     // Build shared visual+text content
     const baseContent: any[] = [ { type: 'text', text: userText } ];
-    for (let i = 0; i < Math.min(2, images.length); i++) {
+    for (let i = 0; i < Math.min(1, images.length); i++) {
       const img = images[i];
       if (img && /^image\//i.test(img.mimeType) && typeof img.base64 === 'string' && img.base64.length > 0) {
         baseContent.push({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
@@ -95,7 +95,8 @@ export default async (req: Request) => {
       body: JSON.stringify({
         response_format: { type: 'text' },
         temperature: 0.1,
-        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 2000) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ]
+        messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 1800) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ],
+        max_tokens: 600
       })
     });
     dbg('step1(parse) status', parseRes.status);
@@ -111,7 +112,7 @@ export default async (req: Request) => {
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
     const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Quantitative: options are numbers with units or explicit formulas; explanation shows relation+substitution.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
-    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 2800)}` }, { type: 'text', text: genInstruction } ];
+    const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 2200)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
     genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 2000) });
     // Attach images again if any
@@ -125,9 +126,10 @@ export default async (req: Request) => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
       body: JSON.stringify({
-        response_format: { type: 'text' },
+        response_format: { type: 'json_object' },
         temperature: 0.1,
-        messages: [ { role: 'user', content: genContent } ]
+        messages: [ { role: 'user', content: genContent } ],
+        max_tokens: 900
       })
     });
     dbg('step2(generate) status', res.status);
