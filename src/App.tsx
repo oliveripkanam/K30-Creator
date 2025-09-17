@@ -10,6 +10,7 @@ import { ReviewPage } from './components/ReviewPage';
 import { QuestionHistory } from './components/QuestionHistory';
 import { QuestionDetail } from './components/QuestionDetail';
 import { MilestonesPage } from './components/MilestonesPage';
+import { StreaksPage } from './components/StreaksPage';
 
 interface MistakeType {
   id: string;
@@ -79,7 +80,7 @@ interface SolutionSummary {
   keyFormulas: string[];
 }
 
-type AppState = 'login' | 'dashboard' | 'input' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review' | 'milestones';
+type AppState = 'login' | 'dashboard' | 'input' | 'decoder' | 'mcq' | 'solution' | 'history' | 'history_detail' | 'review' | 'milestones' | 'streaks';
 const [selectedHistoryId, setSelectedHistoryId] = [undefined as any];
 
 export default function App() {
@@ -846,6 +847,7 @@ export default function App() {
             onViewHistory={() => setCurrentState('history')}
             onLogout={handleLogout}
             onOpenMilestones={() => setCurrentState('milestones')}
+            onOpenStreaks={() => setCurrentState('streaks')}
           />
         );
       case 'input':
@@ -909,6 +911,13 @@ export default function App() {
         return (
           <MilestonesPage
             questionsDecoded={user!.questionsDecoded}
+            onBack={() => setCurrentState('dashboard')}
+          />
+        );
+      case 'streaks':
+        return (
+          <StreaksPage
+            userId={user!.id}
             onBack={() => setCurrentState('dashboard')}
           />
         );

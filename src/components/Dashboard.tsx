@@ -38,6 +38,7 @@ interface DashboardProps {
   onViewHistory: () => void;
   onLogout: () => void;
   onOpenMilestones?: () => void;
+  onOpenStreaks?: () => void;
 }
 
 // Small sparkline component that queries last 10 decodes and computes accuracy
@@ -137,7 +138,7 @@ function TrendSparkline({ userId }: { userId: string }) {
   );
 }
 
-export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onOpenMilestones }: DashboardProps) {
+export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onOpenMilestones, onOpenStreaks }: DashboardProps) {
   const streakGoal = 30;
   const nextMilestone = Math.ceil(user.questionsDecoded / 10) * 10;
   const prevMilestone = [...MILESTONES].filter(m => m <= user.questionsDecoded).sort((a,b)=>a-b).pop() || 0;
@@ -295,7 +296,7 @@ export function Dashboard({ user, onStartDecoding, onViewHistory, onLogout, onOp
             </CardContent>
           </Card>
 
-          <Card>
+          <Card role="button" onClick={onOpenStreaks} className="cursor-pointer">
             <CardHeader className="pb-2 sm:pb-3">
               <CardTitle className="text-xl sm:text-2xl flex items-center">
                 {user.currentStreak}
