@@ -432,19 +432,46 @@ export default async (req: Request) => {
     if (!Array.isArray(ensured.solution.workingSteps)) ensured.solution.workingSteps = [];
     if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
 
-    // If workingSteps missing, derive from MCQ explanations concisely
+    // Preferred: build working steps from the model plan when present
+    try {
+      const plan = Array.isArray((parsedSummary as any)?.plan) ? (parsedSummary as any).plan : [];
+      if (ensured.solution.workingSteps.length === 0 && plan.length > 0) {
+        const goalLabel = (g: string) => {
+          const s = String(g || '').toLowerCase();
+          if (/select relation|identify relation/.test(s)) return 'Choose the governing relation for this step.';
+          if (/substitute/.test(s)) return 'Substitute known values into the chosen relation and evaluate.';
+          if (/compute/.test(s)) return 'Compute the next required quantity using the relation.';
+          if (/derive formula|derive/.test(s)) return 'Rearrange/derive the required formula before substitution.';
+          if (/resolve component|component/.test(s)) return 'Resolve vectors/components along the relevant direction.';
+          if (/identify concept|concept/.test(s)) return 'Identify the key concept that applies at this step.';
+          if (/compare|contrast/.test(s)) return 'Compare the candidate relations/quantities and select the best fit.';
+          if (/classify/.test(s)) return 'Classify the case/condition to apply the correct relation.';
+          return 'Progress the solution with the next logically required step.';
+        };
+        ensured.solution.workingSteps = plan.slice(0, 6).map((p: any) => goalLabel(String(p?.goal || '')));
+      }
+    } catch {}
+
+    // Fallback: derive from MCQ explanations/questions, filtering generic lines
     if (ensured.solution.workingSteps.length === 0 && Array.isArray(ensured.mcqs)) {
+      const isGeneric = (s: string) => /Proceed step-by-step|Select the option that logically progresses|Identify the next governing relationship/i.test(s);
       const ws: string[] = [];
       for (const m of ensured.mcqs) {
         const expl = String(m?.explanation || '').trim();
         const q = String(m?.question || '').trim();
-        const line = expl || q;
-        if (line) ws.push(line.slice(0, 180));
+        const cand = (expl || q).slice(0, 200);
+        if (cand && !isGeneric(cand)) ws.push(cand);
       }
       ensured.solution.workingSteps = ws.slice(0, 6);
     }
 
-    // If keyFormulas missing, extract common physics relations from explanations
+    // If keyFormulas missing, prefer relations from parsed summary; else extract from MCQs
+    if (ensured.solution.keyFormulas.length === 0) {
+      const relsFromSummary = Array.isArray((parsedSummary as any)?.relations) ? (parsedSummary as any).relations : [];
+      if (relsFromSummary.length > 0) {
+        ensured.solution.keyFormulas = relsFromSummary.slice(0, 3).map((r: any) => String(r).slice(0, 24));
+      }
+    }
     if (ensured.solution.keyFormulas.length === 0 && Array.isArray(ensured.mcqs)) {
       const known = [ 'v=u+at', 's=ut+1/2at^2', 'F=ma', 'P=F/A', 'W=Fs', 'p=mv', 'KE=1/2mv^2', 'PE=mgh' ];
       const set = new Set<string>();
