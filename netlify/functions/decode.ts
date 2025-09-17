@@ -582,23 +582,61 @@ ${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthIn
       }
     } catch {}
 
+    // STEP 3.1: Enforce 1:1 alignment between workingSteps and MCQs (exact same length)
+    try {
+      const desired = (ensured.mcqs || []).length;
+      const existing = Array.isArray(ensured.solution.workingSteps) ? ensured.solution.workingSteps : [];
+      if (desired > 0 && existing.length !== desired) {
+        const compressFormula = (s: string): string => String(s || '')
+          .replace(/\s+/g, ' ')
+          .replace(/\s*=\s*/g, ' = ')
+          .replace(/\s*\+\s*/g, ' + ')
+          .replace(/\s*-\s*/g, ' - ')
+          .replace(/\s*\*\s*/g, ' * ')
+          .replace(/\s*\/\s*/g, ' / ')
+          .trim();
+        const buildStepFromMcq = (m: any): string => {
+          const text = `${m?.question || ''} ${m?.explanation || ''} ${(m?.calculationStep?.formula) || ''} ${(m?.calculationStep?.substitution) || ''}`;
+          // Prefer a formula-based imperative
+          const f1 = text.match(/\b[A-Za-z][A-Za-z0-9]*\s*=\s*[-+*/A-Za-z0-9()^··\s]+/);
+          if (f1) return `Use ${compressFormula(f1[0]).slice(0, 60)}.`;
+          // If numbers and units present, make a substitution step
+          const hasNums = /\d/.test(text);
+          if (hasNums) return 'Substitute known values with units and evaluate.';
+          // Conceptual: compress question/explanation to an actionable statement
+          let s = String(m?.question || m?.explanation || '').trim();
+          s = s.replace(/^\s*(which|what|choose|select)\b[\s\S]*?\b(is|are)\b\s*/i, '')
+               .replace(/^\s*(which|what)\b[\s\S]*?\?/i, '')
+               .replace(/^\s*(in|within)\s+a\s+vacuum\b/i, 'In a vacuum, ')
+               .replace(/\s+/g, ' ')
+               .replace(/\.$/, '')
+               .trim();
+          if (/vacuum/i.test(s)) return 'Recognize uniform acceleration in a vacuum.';
+          return s ? `Identify: ${s.slice(0, 80)}.` : 'State the next required fact.';
+        };
+        const aligned: string[] = (ensured.mcqs || []).map((m: any) => buildStepFromMcq(m));
+        ensured.solution.workingSteps = aligned.slice(0, desired);
+        try { console.log('[fn decode] aligned workingSteps count', { desired, steps: ensured.solution.workingSteps.length }); } catch {}
+      }
+    } catch {}
+
     // Always produce at least 2 key points and avoid duplicating working steps
     try {
-      const kp = (ensured.solution as any).keyPoints as string[];
+      let kp = (ensured.solution as any).keyPoints as string[];
       const add = (s: string) => { if (s && !kp.includes(s)) kp.push(s); };
-      if (kp.length < 2) {
-        if (ensured.solution.keyFormulas.length > 0) add(`Use ${ensured.solution.keyFormulas[0]} appropriately for this problem.`);
-        const ws0 = ensured.solution.workingSteps[0];
-        if (ws0) add(ws0.replace(/\.$/, ''));
-      }
-      if (kp.length < 2) add('Select the governing relation first, then substitute known values and compute.');
-      // Remove items that exactly equal a working step (to avoid mirror content)
+      // Prefer short noun-phrases; if missing, synthesize concise points from formulas and context
+      const makeShort = (s: string) => String(s || '').trim().replace(/\.$/, '').split(/\s+/).slice(0, 10).join(' ');
+      kp = Array.isArray(kp) ? kp.map(makeShort).filter(Boolean) : [];
+      if (kp.length < 2 && ensured.solution.keyFormulas.length > 0) add(makeShort(`${ensured.solution.keyFormulas[0]} (governing relation)`));
+      if (kp.length < 2 && /vacuum/i.test(`${JSON.stringify(parsedSummary)} ${JSON.stringify(ensured.mcqs)}`)) add('Uniform acceleration in vacuum');
+      if (kp.length < 2 && /9\.?8\d?\s*m\/s\^?2|9\.81\s*m\/s\^?2/i.test(`${JSON.stringify(ensured.mcqs)}`)) add('g ≈ 9.81 m/s² near Earth');
+      // Remove items that equal or closely match a working step
       const wsSet = new Set((ensured.solution.workingSteps || []).map((s: string) => s.toLowerCase()));
       let filtered = kp.filter(s => !wsSet.has(String(s || '').toLowerCase()));
       // If still fewer than 2 items, borrow top informative steps
       if (filtered.length < 2) {
         const informative = (ensured.solution.workingSteps || []).filter((s: string) => /\d|[A-Za-z]{3,}/.test(s)).slice(0, 2 - filtered.length);
-        filtered = [...filtered, ...informative];
+        filtered = [...filtered, ...informative.map(makeShort)];
       }
       (ensured.solution as any).keyPoints = (filtered.length ? filtered : kp).slice(0, 3);
       console.log('[fn decode] final keyPoints', (ensured.solution as any).keyPoints);
