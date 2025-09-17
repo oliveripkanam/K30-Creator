@@ -91,14 +91,16 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
     return () => { cancelled = true; };
   }, [userId, range, days]);
 
-  // Prepare grid weeks (GitHub-style)
+  // Prepare week columns (Mon-first) — simple and robust for rendering as flex columns
   const first = days[0];
-  const startWeekday = first.getDay(); // 0 Sun ... 6 Sat
-  const paddedDays: (Date | null)[] = Array(startWeekday === 0 ? 6 : startWeekday - 1).fill(null);
-  // We want Monday-first grid: convert JS weekday to Mon=0..Sun=6
-  const normalizeMonFirst = (d: Date) => (d.getDay() + 6) % 7;
-  const padCount = normalizeMonFirst(first);
-  const calendarCells: (Date | null)[] = Array(padCount).fill(null).concat(days);
+  const normalizeMonFirst = (d: Date) => (d.getDay() + 6) % 7; // Mon=0..Sun=6
+  const padStart = normalizeMonFirst(first);
+  const calendarCells: (Date | null)[] = Array(padStart).fill(null).concat(days);
+  // Pad end to full weeks so the last column has 7 cells
+  const remainder = calendarCells.length % 7;
+  if (remainder !== 0) {
+    for (let i = 0; i < 7 - remainder; i++) calendarCells.push(null);
+  }
   const weeks: (Date | null)[][] = [];
   for (let i = 0; i < calendarCells.length; i += 7) weeks.push(calendarCells.slice(i, i + 7));
 
@@ -152,16 +154,15 @@ export function StreaksPage({ userId, onBack }: StreaksPageProps) {
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
-              <div className="inline-grid grid-rows-7 gap-1" style={{ gridAutoFlow: 'column' }}>
+              <div className="flex gap-1" style={{ minHeight: '7rem' }}>
                 {weeks.map((w, wi) => (
-                  <div key={wi} className="grid grid-rows-7 gap-1">
-                    {Array.from({ length: 7 }).map((_, ri) => {
-                      const d = w?.[ri] || null;
+                  <div key={wi} className="flex flex-col gap-1">
+                    {w.map((d, ri) => {
                       const k = d ? formatKey(d) : '';
                       const count = d ? (countByDay[k] || 0) : 0;
                       const isToday = d && k === todayKey;
                       return (
-                        <div key={ri} className={`w-4 h-4 rounded ${d ? levelFor(count) : 'bg-transparent'} ${isToday ? 'ring-2 ring-blue-500' : ''}`} title={d ? `${k} • ${count} question${count===1?'':'s'}` : ''} />
+                        <div key={ri} className={`w-3.5 h-3.5 rounded ${d ? levelFor(count) : 'bg-transparent'} ${isToday ? 'ring-2 ring-blue-500' : ''}`} title={d ? `${k} • ${count} question${count===1?'':'s'}` : ''} />
                       );
                     })}
                   </div>
