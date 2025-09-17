@@ -475,6 +475,7 @@ export default function App() {
             extracted_text: currentQuestion.extractedText ?? null,
             decoded_at: new Date().toISOString(),
             time_spent_minutes: timeSpent,
+            time_spent_seconds: Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000)),
             tokens_earned: tokensEarned,
             solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
           });
@@ -561,7 +562,7 @@ export default function App() {
       } else if (!insertedId) {
         const insertQuestions = supabase
           .from('questions')
-          .insert({
+            .insert({
             user_id: user.id,
             source_type: currentQuestion.type,
             marks: currentQuestion.marks,
@@ -569,6 +570,7 @@ export default function App() {
             extracted_text: currentQuestion.extractedText ?? null,
             decoded_at: new Date().toISOString(),
             time_spent_minutes: timeSpent,
+              time_spent_seconds: Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000)),
             tokens_earned: tokensEarned,
             solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
             // persist provenance for focus-area views
@@ -592,6 +594,7 @@ export default function App() {
             .from('questions')
             .update({
               time_spent_minutes: timeSpent,
+              time_spent_seconds: Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000)),
               tokens_earned: tokensEarned,
               solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
             })
@@ -647,9 +650,10 @@ export default function App() {
           }
         }
         try { window.dispatchEvent(new Event('k30:history:refresh')); } catch {}
+        try { window.dispatchEvent(new Event('k30:streaks:refresh')); } catch {}
         await updateAnswersAndMistakes(questionId, hasSessionNow);
       }
-      // Refresh DB-backed totals, tokens, and mistakes after save
+      // Refresh DB-backed totals, tokens, and streak after save
       try {
         await Promise.race([
           refreshDashboardMetrics(user.id),
@@ -708,31 +712,19 @@ export default function App() {
   // Fetch totals (questions, marks, tokens) and true daily streak from DB
   const refreshDashboardMetrics = async (userId: string) => {
     try {
-      // Try view for totals first
+      // Compute totals directly from questions (avoid view/406)
       let questionsDecoded = 0;
       let totalMarks = 0;
       let tokens = 0;
       try {
-        const { data: totalsRow, error: totalsErr } = await supabase
-          .from('v_user_totals')
-          .select('*')
-          .eq('user_id', userId)
-          .single();
-        if (!totalsErr && totalsRow) {
-          questionsDecoded = Number(totalsRow.questions_decoded || 0);
-          totalMarks = Number(totalsRow.total_marks || 0);
-          tokens = Number(totalsRow.tokens || 0);
-        } else {
-          // Fallback compute from questions
-          const { data: qAgg } = await supabase
-            .from('questions')
-            .select('marks, tokens_earned, id')
-            .eq('user_id', userId);
-          if (qAgg) {
-            questionsDecoded = qAgg.length;
-            totalMarks = qAgg.reduce((s: number, q: any) => s + Number(q.marks || 0), 0);
-            tokens = qAgg.reduce((s: number, q: any) => s + Number(q.tokens_earned || 0), 0);
-          }
+        const { data: qAgg } = await supabase
+          .from('questions')
+          .select('marks, tokens_earned, id')
+          .eq('user_id', userId);
+        if (qAgg) {
+          questionsDecoded = qAgg.length;
+          totalMarks = qAgg.reduce((s: number, q: any) => s + Number(q.marks || 0), 0);
+          tokens = qAgg.reduce((s: number, q: any) => s + Number(q.tokens_earned || 0), 0);
         }
       } catch {}
 
