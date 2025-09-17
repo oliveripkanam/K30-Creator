@@ -12,9 +12,14 @@ K30 Creator helps students study smarter by turning exam questions into a guided
 
 ### How it works
 1) Provide a question (type, upload a photo, or drop a file)
-2) The app extracts and cleans the question text
-3) It generates focused MCQs with hints
+2) The app sends your text and/or images securely to our AI to understand the problem
+3) It generates focused MCQs with helpful hints
 4) You answer step‑by‑step and receive a final solution summary
+
+### Input limits and tips
+- PDF: first 2 pages are processed to keep things fast and reliable.
+- DOCX: text content is supported; embedded images/diagrams may not be captured yet. If a DOCX relies on diagrams, consider exporting to PDF.
+- Images: up to 2 images per question are included; large images are downscaled to reduce upload time while preserving clarity.
 
 ### License
 MIT — see `LICENSE`.
