@@ -1,7 +1,7 @@
 // Types from @netlify/functions removed for portability in local linting
 
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
-type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[] };
+type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[] };
 type ImageItem = { base64: string; mimeType: string };
 type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
@@ -431,6 +431,7 @@ export default async (req: Request) => {
     ensured.solution = ensured.solution || {};
     if (!Array.isArray(ensured.solution.workingSteps)) ensured.solution.workingSteps = [];
     if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
+    if (!Array.isArray((ensured.solution as any).keyPoints)) (ensured.solution as any).keyPoints = [];
 
     // Preferred: build working steps from the model plan when present
     try {
@@ -483,6 +484,19 @@ export default async (req: Request) => {
       }
       ensured.solution.keyFormulas = Array.from(set).slice(0, 3);
     }
+
+    // Always produce at least 2 key points
+    try {
+      const kp = (ensured.solution as any).keyPoints as string[];
+      const add = (s: string) => { if (s && !kp.includes(s)) kp.push(s); };
+      if (kp.length < 2) {
+        if (ensured.solution.keyFormulas.length > 0) add(`Use ${ensured.solution.keyFormulas[0]} appropriately for this problem.`);
+        const ws0 = ensured.solution.workingSteps[0];
+        if (ws0) add(ws0.replace(/\.$/, ''));
+      }
+      if (kp.length < 2) add('Select the governing relation first, then substitute known values and compute.');
+      (ensured.solution as any).keyPoints = kp.slice(0, 3);
+    } catch {}
 
     // Do not top-up here; step2 was instructed to return exactly 'marks'
 
