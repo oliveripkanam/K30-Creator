@@ -50,56 +50,7 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
   const progress = ((currentIndex + 1) / mcqs.length) * 100;
   const isLastQuestion = currentIndex === mcqs.length - 1;
 
-  // Ensure a pre-inserted question/steps exist before first answer so per-step writes have a question_id
-  React.useEffect(() => {
-    let attempted = false;
-    (async () => {
-      try {
-        if ((window as any).__k30_activeQuestionId) return;
-        if (attempted) return; attempted = true;
-        const mod = await import('../lib/supabase');
-        const supabase = mod.supabase;
-        const { data: u } = await supabase.auth.getUser();
-        const userId: string | undefined = (u as any)?.user?.id;
-        if (!userId) return;
-        // Insert question row
-        const insertQ = supabase
-          .from('questions')
-          .insert({
-            user_id: userId,
-            source_type: originalQuestion.type,
-            marks: originalQuestion.marks,
-            original_input: originalQuestion.content,
-            extracted_text: originalQuestion.extractedText ?? null,
-            decoded_at: new Date().toISOString(),
-            subject: (originalQuestion as any)?.subject || null,
-            syllabus: (originalQuestion as any)?.syllabus || 'General',
-            year: (originalQuestion as any)?.level || null,
-          })
-          .select('id')
-          .single();
-        const { data: qrow, error } = (await Promise.race([insertQ, new Promise((_, reject) => setTimeout(() => reject(new Error('preinsert timeout')), 6000))])) as any;
-        if (error) throw error;
-        const qid = qrow?.id as string | undefined;
-        if (!qid) return;
-        try { (window as any).__k30_activeQuestionId = qid; } catch {}
-        try { window.dispatchEvent(new CustomEvent('k30:activeQuestionId', { detail: { id: qid } })); } catch {}
-        // Insert steps for this question
-        const choicesWithLabels = (options: string[]) => options.map((t, idx) => ({ label: String.fromCharCode(65 + idx), text: t }));
-        await supabase
-          .from('mcq_steps')
-          .insert(mcqs.map((m, i) => ({
-            question_id: qid,
-            step_index: i,
-            prompt: m.question,
-            choices: choicesWithLabels(m.options),
-            correct_label: String.fromCharCode(65 + (m.correctAnswer ?? 0)),
-            user_answer: null, is_correct: null, answered_at: null,
-          })));
-      } catch {}
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Pre-insert is handled centrally in App; we avoid doing it here to prevent duplicates.
 
   const handleAnswerSelect = (answerIndex: number) => {
     if (isAnswered) return;

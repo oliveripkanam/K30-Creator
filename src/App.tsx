@@ -191,8 +191,8 @@ export default function App() {
     } catch {}
     // Reset app state
     try {
-      setUser(null);
-      setCurrentState('login');
+    setUser(null);
+    setCurrentState('login');
     } catch {}
     // Force a full reload to ensure any stale in-memory state is gone
     try { setTimeout(() => window.location.assign(window.location.origin), 50); } catch {}
@@ -342,10 +342,11 @@ export default function App() {
       } catch {}
     })();
 
-    // Pre-insert question + steps so we can write answers in real time
+    // Pre-insert question + steps so we can write answers in real time (single source of truth)
     (async () => {
       try {
         if (!user || !currentQuestion) return;
+        if (activeQuestionId) return; // avoid duplicate pre-inserts
         // Insert question row first
         const insertQuestions = supabase
           .from('questions')
@@ -399,7 +400,8 @@ export default function App() {
 
   const saveCompletion = async (navigateAfter: boolean) => {
     if (!(user && currentQuestion && solutionSummary && questionStartTime)) return;
-      const timeSpent = Math.round((new Date().getTime() - questionStartTime.getTime()) / (1000 * 60));
+      const elapsedSeconds = Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000));
+      const timeSpent = Math.round(elapsedSeconds / 60);
       const tokensEarned = calculateTokens(currentQuestion.marks, mcqs.length, timeSpent);
 
     // If already persisted, just navigate if requested
@@ -485,7 +487,7 @@ export default function App() {
             extracted_text: currentQuestion.extractedText ?? null,
             decoded_at: new Date().toISOString(),
             time_spent_minutes: timeSpent,
-            time_spent_seconds: Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000)),
+            time_spent_seconds: elapsedSeconds,
             tokens_earned: tokensEarned,
             solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
           });
@@ -580,7 +582,7 @@ export default function App() {
             extracted_text: currentQuestion.extractedText ?? null,
             decoded_at: new Date().toISOString(),
             time_spent_minutes: timeSpent,
-              time_spent_seconds: Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000)),
+            time_spent_seconds: elapsedSeconds,
             tokens_earned: tokensEarned,
             solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
             // persist provenance for focus-area views
@@ -604,7 +606,7 @@ export default function App() {
             .from('questions')
             .update({
               time_spent_minutes: timeSpent,
-              time_spent_seconds: Math.max(0, Math.round((new Date().getTime() - questionStartTime.getTime()) / 1000)),
+              time_spent_seconds: elapsedSeconds,
               tokens_earned: tokensEarned,
               solution_summary: solutionSummary ? JSON.stringify(solutionSummary) : null,
             })
