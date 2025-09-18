@@ -3,7 +3,7 @@
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[]; applications?: string[]; pitfalls?: string[] };
 type ImageItem = { base64: string; mimeType: string };
-type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string };
+type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string; maxTokens?: number };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -23,6 +23,7 @@ export default async (req: Request) => {
   const subject = (payload.subject || '').toString().trim();
   const syllabus = (payload.syllabus || '').toString().trim();
   const level = (payload.level || '').toString().trim();
+  const userMaxTokens = (() => { const n = Number((payload as any)?.maxTokens); return Number.isFinite(n) ? Math.max(200, Math.min(1200, Math.floor(n))) : 0; })();
   if (!text && images.length === 0) return respond(400, { error: "Missing 'text' or 'images'" });
   dbg('input summary', { textLen: text.length, marks, images: images.length });
 
@@ -40,6 +41,11 @@ export default async (req: Request) => {
     try { console.error('[fn decode] missing config', { hasEndpoint: !!rawEndpoint, hasKey: !!apiKey }); } catch {}
     return respond(500, { error: 'Missing Azure OpenAI endpoint or api key' });
   }
+
+  // Optional RAG via Azure AI Search
+  const searchEndpoint = (getEnv('AZURE_SEARCH_ENDPOINT') || '').trim();
+  const searchIndex = (getEnv('AZURE_SEARCH_INDEX_NAME') || '').trim();
+  const searchKey = (getEnv('AZURE_SEARCH_API_KEY') || getEnv('AZURE_SEARCH_ADMIN_KEY') || '').trim();
 
   const headerParts = [
     subject ? `Subject: ${subject}` : '',
@@ -118,11 +124,51 @@ export default async (req: Request) => {
     const subjectHint: string = String(parsedSummary?.subjectHint || '').toLowerCase();
     const isConceptual = subjectHint === 'conceptual' || (!/\d/.test(userTextRaw));
 
+    // Lightweight retrieval (if configured) to ground generation
+    let retrievedSnippets: string[] = [];
+    const runSearch = async () => {
+      if (!searchEndpoint || !searchIndex || !searchKey) return;
+      const qParts: string[] = [];
+      if (subject) qParts.push(`subject:${subject}`);
+      if (syllabus) qParts.push(`syllabus:${syllabus}`);
+      if (level) qParts.push(`level:${level}`);
+      // use a short slice of the question text as the main query
+      qParts.push(text.slice(0, 200));
+      const query = qParts.filter(Boolean).join(' ');
+      const url = `${searchEndpoint.replace(/\/$/, '')}/indexes/${encodeURIComponent(searchIndex)}/docs/search?api-version=2024-07-01`;
+      const controller = new AbortController();
+      const t = setTimeout(() => { try { controller.abort(); } catch {} }, 1500);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'api-key': searchKey },
+          body: JSON.stringify({
+            search: query || '*',
+            top: 3,
+            select: 'merged_content,content,metadata_storage_name,metadata_subject,metadata_syllabus,metadata_year',
+          }),
+          signal: controller.signal as any
+        });
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null) as any;
+        const values = Array.isArray(data?.value) ? data.value : [];
+        const pick = (doc: any) => String(doc?.merged_content || doc?.content || '').trim();
+        retrievedSnippets = values.map((v: any) => pick(v)?.slice(0, 500)).filter((s: string) => s && s.length > 60).slice(0, 3);
+      } catch {} finally { clearTimeout(t); }
+    };
+    await runSearch();
+
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
     const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
     const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 900)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
     genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 1200) });
+    // If we have retrieved context, prepend it compactly
+    if (retrievedSnippets.length) {
+      const header = 'Retrieved Context (use for facts, avoid copying):';
+      const body = retrievedSnippets.map((s, i) => `(${i+1}) ${s}`).join('\n');
+      genContent.unshift({ type: 'text', text: `${header}\n${body}` });
+    }
     // Attach images again if any
     if (hasImage) {
       for (let i = 0; i < Math.min(2, images.length); i++) {
@@ -139,7 +185,7 @@ export default async (req: Request) => {
         response_format: { type: 'json_object' },
         temperature: 0.1,
         messages: [ { role: 'user', content: genContent } ],
-        max_tokens: 450
+        max_tokens: (userMaxTokens || 450)
       }),
       signal: genController.signal as any
     });
