@@ -24,7 +24,7 @@ export default async (req: Request) => {
   const syllabus = (payload.syllabus || '').toString().trim();
   const level = (payload.level || '').toString().trim();
   // Interpret client value as a TOTAL BUDGET for the generate stage (prompt + completion)
-  const userTotalBudget = (() => { const n = Number((payload as any)?.maxTokens); return Number.isFinite(n) ? Math.max(200, Math.min(6000, Math.floor(n))) : 0; })();
+  const userTotalBudget = (() => { const n = Number((payload as any)?.maxTokens); return Number.isFinite(n) ? Math.max(200, Math.min(1000000, Math.floor(n))) : 0; })();
   if (!text && images.length === 0) return respond(400, { error: "Missing 'text' or 'images'" });
   dbg('input summary', { textLen: text.length, marks, images: images.length });
 
@@ -216,7 +216,7 @@ export default async (req: Request) => {
         promptEst = recompute();
       }
     }
-    const computedMaxCompletion = targetBudget ? Math.max(50, Math.min(1200, targetBudget - promptEst)) : 450;
+    const computedMaxCompletion = targetBudget ? Math.max(50, Math.min(1000000, targetBudget - promptEst)) : 450;
     try { console.log('[fn decode] token budget', { targetBudget, promptEst, max_completion: computedMaxCompletion }); } catch {}
     // Attach images again if any
     if (hasImage) {
