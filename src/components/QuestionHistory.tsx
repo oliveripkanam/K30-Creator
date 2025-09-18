@@ -397,9 +397,7 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
                           <Badge variant="outline" className="text-xs">
                             {question.type === 'photo' ? 'Photo' : question.type === 'file' ? 'PDF' : 'Text'}
                           </Badge>
-                          <Badge variant="secondary" className="text-xs">
-                            {question.marks} mark{question.marks !== 1 ? 's' : ''}
-                          </Badge>
+                          {/* Hide marks chip to avoid confusion when AI decides MCQ count */}
                         </div>
                         <p className="text-sm text-muted-foreground">
                           Completed {formatDate(question.completedAt)}
