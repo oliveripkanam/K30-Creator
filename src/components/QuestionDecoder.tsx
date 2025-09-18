@@ -144,6 +144,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       const text = `${q.extractedText || q.content} ${mcq.question}`.toLowerCase();
       if (/long\-term|chronic/.test(text)) return 'Hint: unlike short-term effects, cite one chronic risk (months–years).';
       if (/short\-term|acute/.test(text)) return 'Hint: pick one immediate effect (hours–days), not a chronic outcome.';
+      // Definitional stems: add discriminative cue
       const stem = String(mcq.question || '');
       if (/(what is|define|best describes|identify)/i.test(stem)) {
         const m = stem.match(/what is (?:the |an )?([^?]+?)(?: in ([^?]+))?\?/i);
@@ -159,11 +160,18 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
     return mcqs.map((m) => {
       let hint = isWeakHint(m.hint) ? strengthenHint(m, q) : String(m.hint || '').trim();
       const key = normalize(hint);
-      if (used.has(key)) { hint = altHintFor(m); }
+      if (used.has(key)) {
+        hint = altHintFor(m);
+      }
       if (hasContrast(hint)) {
-        if (contrastBudget > 0) { contrastBudget--; } else {
+        if (contrastBudget > 0) {
+          contrastBudget--;
+        } else {
+          // convert contrast to attribute/mechanism phrasing
           const noContrast = hint.replace(/[,;]?\s*(unlike|vs)\b[\s\S]*$/i, '').trim();
-          hint = noContrast && noContrast.length > 8 ? `${noContrast}. Use a key attribute or mechanism to decide.` : 'Hint: look for a key attribute or mechanism to eliminate distractors.';
+          hint = noContrast && noContrast.length > 8
+            ? `${noContrast}. Use a key attribute or mechanism to decide.`
+            : 'Hint: look for a key attribute or mechanism to eliminate distractors.';
         }
       }
       used.add(normalize(hint));
@@ -182,6 +190,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
 
   useEffect(() => {
     let cancelled = false;
+    // Show each step for ~3s for a smoother, predictable cadence
     const stepDuration = 3000;
     let currentIndex = 0;
     const interval = setInterval(() => {
@@ -195,6 +204,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
       }
     }, stepDuration);
 
+    // Start decoding immediately (in parallel) and finish when ready
     const decode = async () => {
       try {
         console.log('[decoder] POST /api/ai-decode');
@@ -293,9 +303,9 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           try {
             const raw = localStorage.getItem('k30:maxTokens') || '';
             const n = parseInt(raw, 10);
-            if (!Number.isFinite(n)) return 1200;
-            return Math.max(200, Math.min(1000000, Math.floor(n)));
-          } catch { return 1200; }
+            if (!Number.isFinite(n)) return 450;
+            return Math.max(200, Math.min(1200, Math.floor(n)));
+          } catch { return 450; }
         })();
         const payload: any = {
           text: textForDecode,
@@ -341,7 +351,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           const data = await res.json();
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
-          if (data?.meta) console.log('[decoder] meta:', data.meta);
           try {
             const genUse = (data?.usage?.stages?.generate as any) || null;
             const maxTok = Number(data?.meta?.generate_max_tokens || 0);
