@@ -346,27 +346,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             // Enforce MCQ count equals marks (no placeholder wording)
             let mcqsOut = Array.isArray(data.mcqs) ? data.mcqs.slice(0) : [];
             const need = Math.max(0, Math.min(8, question.marks) - mcqsOut.length);
-            if (need > 0) {
-              const base = mcqsOut.length;
-              for (let i = 0; i < need; i++) {
-                const stepNum = base + i + 1;
-                mcqsOut.push({
-                  id: `client-fill-${Date.now()}-${i}`,
-                  question: `Step ${stepNum} — choose the next concrete action toward the solution.`,
-                  options: [
-                    'State the relevant formula/law',
-                    'Substitute given values',
-                    'Compute the intermediate result',
-                    'None of the above'
-                  ],
-                  correctAnswer: 0,
-                  hint: 'State the governing relation first (e.g., F=ma, T=mg±ma, v=u+at), then proceed.',
-                  explanation: 'Using the correct governing formula at each step is essential before substitution and computation.',
-                  step: stepNum,
-                  calculationStep: undefined
-                });
-              }
-            }
+            // Do NOT inject placeholder MCQs; show exactly what the server produced.
 
             // Normalize solution object to guarantee arrays/strings
             let transformedSolution: any = {

@@ -361,6 +361,45 @@ export default function App() {
       } catch {}
     })();
 
+    // Phase 2 refinement: enrich workingSteps, keyPoints, pitfalls asynchronously
+    (async () => {
+      try {
+        const originalText = String((currentQuestion as any)?.extractedText || (currentQuestion as any)?.content || '').slice(0, 1200);
+        const res = await fetch('/api/ai-refine', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            subject: (currentQuestion as any)?.subject,
+            syllabus: (currentQuestion as any)?.syllabus,
+            level: (currentQuestion as any)?.level,
+            originalText,
+            mcqs: generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, correctAnswer: m.correctAnswer, explanation: m.explanation, step: m.step, calculationStep: m.calculationStep })),
+            solution: { workingSteps: solution.workingSteps, keyFormulas: solution.keyFormulas }
+          })
+        });
+        if (!res.ok) {
+          // Netlify function path fallback
+          const alt = await fetch('/.netlify/functions/refine', {
+            method: 'POST', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              subject: (currentQuestion as any)?.subject,
+              syllabus: (currentQuestion as any)?.syllabus,
+              level: (currentQuestion as any)?.level,
+              originalText,
+              mcqs: generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, correctAnswer: m.correctAnswer, explanation: m.explanation, step: m.step, calculationStep: m.calculationStep })),
+              solution: { workingSteps: solution.workingSteps, keyFormulas: solution.keyFormulas }
+            })
+          });
+          if (!alt.ok) return;
+          // Use alt
+          const data = await alt.json();
+          setSolutionSummary(prev => prev ? { ...prev, workingSteps: Array.isArray(data.workingSteps) && data.workingSteps.length ? data.workingSteps : prev.workingSteps, keyFormulas: prev.keyFormulas, ...(Array.isArray(data.keyPoints) ? { keyPoints: data.keyPoints } as any : {}), ...(Array.isArray(data.pitfalls) ? { pitfalls: data.pitfalls } as any : {}) } : prev as any);
+          return;
+        }
+        const data = await res.json();
+        setSolutionSummary(prev => prev ? { ...prev, workingSteps: Array.isArray(data.workingSteps) && data.workingSteps.length ? data.workingSteps : prev.workingSteps, keyFormulas: prev.keyFormulas, ...(Array.isArray(data.keyPoints) ? { keyPoints: data.keyPoints } as any : {}), ...(Array.isArray(data.pitfalls) ? { pitfalls: data.pitfalls } as any : {}) } : prev as any);
+      } catch {}
+    })();
+
     // Pre-insert question + steps so we can write answers in real time (single source of truth)
     (async () => {
       try {
@@ -473,7 +512,7 @@ export default function App() {
         nextStreak = lastHK === yHK ? Math.max(1, user.currentStreak + 1) : 1;
         try { localStorage.setItem(lastKeyStorage, todayHK); } catch {}
       }
-
+      
       setUser({
         ...user,
         questionsDecoded: user.questionsDecoded + 1,
