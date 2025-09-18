@@ -341,6 +341,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           const data = await res.json();
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
+          if (data?.meta) console.log('[decoder] meta:', data.meta);
           try {
             const genUse = (data?.usage?.stages?.generate as any) || null;
             const maxTok = Number(data?.meta?.generate_max_tokens || 0);

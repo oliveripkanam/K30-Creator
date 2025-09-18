@@ -459,6 +459,11 @@ export default async (req: Request) => {
     }
     try { console.log('[fn decode] parsed keys', Object.keys((parsed as any) || {})); } catch {}
 
+    // Track counts for diagnostics
+    let dbgCounts = { rawParsed: 0, salvagedOnInvalid: 0, afterFilter: 0, afterTopup: 0, afterFinal: 0 } as any;
+
+    if (parsed && Array.isArray((parsed as any).mcqs)) { dbgCounts.rawParsed = (parsed as any).mcqs.length; }
+
     // If model output is invalid, attempt a light salvage ONLY when we did not hit the cap
     if ((!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) && !hitGenerateCap) {
       try { console.warn('[fn decode] invalid model output; attempting salvage'); } catch {}
@@ -498,6 +503,7 @@ export default async (req: Request) => {
           salvagedMcqs.push({ id: `sv-${Date.now()}-${i}`, question: qText, options, correctAnswer: correctIdx, hint: 'Use the next governing relation, then substitute.', explanation: 'Progress logically toward the final result.', step: i + 1 } as any);
         }
       } catch {}
+      dbgCounts.salvagedOnInvalid = salvagedMcqs.length;
       const safeSolution: SolutionSummary = { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] };
       parsed = { mcqs: salvagedMcqs, solution: safeSolution } as any;
     }
@@ -511,12 +517,22 @@ export default async (req: Request) => {
     // If the generate cap was hit, do not return any MCQs
     if (hitGenerateCap) { ensured.mcqs = []; }
 
-    // Server-side validator...
+    // Server-side validator
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
     const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement|according to the text/i.test(q);
     const isMultiItemConceptual = (q: string) => /\b(two|both|select two|choose two|two short|two long|multiple)\b/i.test(q);
-    if (Array.isArray(ensured.mcqs)) { ensured.mcqs = ensured.mcqs.filter((m: any) => { const q = String(m?.question || ''); const opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : []; if (isRecallQuestion(q)) return false; if (opts.length !== 4) return false; if (opts.some((o: string) => isMetaOption(o))) return false; if (isConceptual && isMultiItemConceptual(q)) return false; return true; }); }
-    if (!Array.isArray(ensured.mcqs)) ensured.mcqs = [];
+    if (Array.isArray(ensured.mcqs)) {
+      ensured.mcqs = ensured.mcqs.filter((m: any) => {
+        const q = String(m?.question || '');
+        const opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : [];
+        if (isRecallQuestion(q)) return false;
+        if (opts.length !== 4) return false;
+        if (opts.some((o: string) => isMetaOption(o))) return false;
+        if (isConceptual && isMultiItemConceptual(q)) return false;
+        return true;
+      });
+    }
+    dbgCounts.afterFilter = Array.isArray(ensured.mcqs) ? ensured.mcqs.length : 0;
 
     // Replacement generation only if budget allows AND cap not hit
     if ((ensured.mcqs as any[]).length < marks && (!globalBudget || remainingBudget > 180) && !hitGenerateCap) {
@@ -532,91 +548,35 @@ export default async (req: Request) => {
         }
       } catch {}
     }
+    dbgCounts.afterTopup = Array.isArray(ensured.mcqs) ? ensured.mcqs.length : 0;
 
-    // ... existing success parse logging remains
-    dbg('success parse', { mcqs: ensured?.mcqs?.length, hasSolution: !!ensured?.solution, usage: usage_generate_local });
-
-    // Ensure solution fields exist
-    ensured.solution = ensured.solution || {};
-    if (!Array.isArray(ensured.solution.workingSteps)) ensured.solution.workingSteps = [];
-    if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
-    if (!Array.isArray((ensured.solution as any).keyPoints)) (ensured.solution as any).keyPoints = [];
-    if (!Array.isArray((ensured.solution as any).applications)) (ensured.solution as any).applications = [];
-    if (!Array.isArray((ensured.solution as any).pitfalls)) (ensured.solution as any).pitfalls = [];
-
-    // Synthesis (budgeted)
-    const runSynthesis = async () => {
-      const synthPayload = { mode: isConceptual ? 'conceptual' : 'quantitative', summary: parsedSummary, mcqs: (ensured.mcqs || []).map((m: any) => ({ step: Number(m.step) || 0, question: String(m.question || '').slice(0, 400), explanation: String(m.explanation || '').slice(0, 400), correct: Array.isArray(m.options) ? String(m.options[m.correctAnswer] || m.options[0] || '').slice(0, 120) : '', formula: m?.calculationStep?.formula || '', substitution: m?.calculationStep?.substitution || '', result: m?.calculationStep?.result || '' })) };
-      const synthInstruction = `Return ONLY JSON: { workingSteps: string[], keyPoints: string[], applications: string[] }.`;
-      const sMsgs = [ { type: 'text', text: `Synthesize solution sections from:\n${JSON.stringify(synthPayload).slice(0, 4000)}` }, { type: 'text', text: synthInstruction } ];
-      const sPrompt = estimateMessagesTokensAny(sMsgs);
-      const sMax = globalBudget ? Math.max(0, remainingBudget - sPrompt) : 320;
-      if (globalBudget && sMax < 60) return; // skip if budget too low
-      const controller = new AbortController();
-      const t = setTimeout(() => { try { controller.abort(); } catch {} }, 4500);
-      let sd: any = null;
+    // Second salvage if still empty after filters/top-up and cap not hit
+    if ((!ensured.mcqs || ensured.mcqs.length === 0) && !hitGenerateCap) {
+      try { console.warn('[fn decode] MCQs empty after filters/top-up; salvage second pass'); } catch {}
+      const salvageAgain: MCQ[] = [] as any;
       try {
-        const synthRes = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.1, messages: [ { role: 'user', content: sMsgs } ], max_tokens: globalBudget ? sMax : 320 }), signal: controller.signal as any });
-        dbg('step3(synthesize) status', synthRes.status);
-        if (synthRes.ok) { sd = await synthRes.json(); }
-      } finally { clearTimeout(t); }
-      if (sd) { usage_synth = (sd as any)?.usage || null; const sc = sd?.choices?.[0]?.message?.content || ''; try { const sj = JSON.parse(sc); let steps = Array.isArray(sj.workingSteps) ? sj.workingSteps.map((s: any) => String(s || '').trim()).filter(Boolean) : []; let points = Array.isArray(sj.keyPoints) ? sj.keyPoints.map((s: any) => String(s || '').trim()).filter(Boolean) : []; let apps = Array.isArray(sj.applications) ? sj.applications.map((s: any) => String(s || '').trim()).filter(Boolean) : []; const isGeneric = (s: string) => /proceed step-by-step|use the correct formula|substitute numbers/i.test(s); steps = Array.from(new Set(steps.filter(s => !isGeneric(s)))).slice(0, 6); if (!isConceptual) { const hasRelation = steps.some(s => /=/.test(s) && /[A-Za-z]/.test(s)); const hasSub = steps.some(s => /\d/.test(s) && /(=|→)/.test(s)); if (!hasRelation && ensured.solution.keyFormulas?.[0]) steps.unshift(`Use ${ensured.solution.keyFormulas[0]} as the governing relation.`); if (!hasSub) steps.push('Substitute known values with units and evaluate.'); } const wsSet = new Set(steps.map(s => s.toLowerCase())); const simplifyPoint = (p: string): string => { let s = String(p || '').trim(); s = s.replace(/^\s*(identify|recognize|note|understand|remember|acknowledge)\s+that\s+/i, '').replace(/^\s*(apply|use|substitute|compute|calculate)\s+/i, '').replace(/\bwhich\b[\s\S]*$/i, '').replace(/\bthat\b[\s\S]*$/i, '').replace(/,.*$/, '').replace(/\.$/, '').trim(); if (/acceleration due to gravity/i.test(s) && /9\.?8\d?\s*m\/s\^?2|m\s*\/?s\^?2/i.test(p)) s = 'g ≈ 9.81 m/s² near Earth'; if (/vacuum/i.test(p) && /air resistance|same|uniform|mass/i.test(p)) s = 'Uniform acceleration in vacuum (mass independent)'; if (/air resistance/i.test(p)) s = 'Air resistance changes fall rates'; const words = s.split(/\s+/).filter(Boolean).slice(0, 10); s = words.join(' '); return s; }; points = points.map(simplifyPoint).filter(Boolean); points = Array.from(new Set(points.filter(p => !wsSet.has(p.toLowerCase()) && !isGeneric(p)))); ensured.solution.workingSteps = steps.length ? steps : ensured.solution.workingSteps; (ensured.solution as any).keyPoints = points.length ? points : (ensured.solution as any).keyPoints; const simplifyApp = (p: string): string => String(p || '').trim().replace(/\.$/, '').split(/\s+/).slice(0, 12).join(' '); const looksLikeStep = (s: string) => /substitute|compute|use|apply|identify|recognize|derive|select/i.test(s); apps = apps.map(simplifyApp).filter(a => a && !looksLikeStep(a)); (ensured.solution as any).applications = Array.from(new Set(apps)).slice(0, 4); try { console.log('[fn decode] synthesis result', { steps: ensured.solution.workingSteps, keyPoints: (ensured.solution as any).keyPoints }); } catch {} } catch {} }
-    };
-
-    // Pitfalls (budgeted)
-    const runPitfalls = async () => {
-      const contextText = `Context:\n${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormulas, steps: ensured.solution.workingSteps }).slice(0, 4000)}`;
-      const pitInstruction = `Return ONLY JSON: { pitfalls: string[] }.`;
-      const pMsgs = [ { type: 'text', text: contextText }, { type: 'text', text: pitInstruction } ];
-      const pPrompt = estimateMessagesTokensAny(pMsgs);
-      const pMax = globalBudget ? Math.max(0, remainingBudget - pPrompt) : 220;
-      if (globalBudget && pMax < 50) return;
-      const controller = new AbortController();
-      const t = setTimeout(() => { try { controller.abort(); } catch {} }, 3500);
-      let pd: any = null;
-      try {
-        const pitRes = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.2, messages: [ { role: 'user', content: pMsgs } ], max_tokens: globalBudget ? pMax : 220 }), signal: controller.signal as any });
-        dbg('step4(pitfalls) status', pitRes.status);
-        if (pitRes.ok) { pd = await pitRes.json(); }
-      } finally { clearTimeout(t); }
-      if (pd) { usage_pitfalls = (pd as any)?.usage || null; const pc = pd?.choices?.[0]?.message?.content || ''; try { const pj = JSON.parse(pc); let pits = Array.isArray(pj.pitfalls) ? pj.pitfalls.map((s: any) => String(s || '').trim()).filter(Boolean) : []; const looksLikeStep = (s: string) => /substitute|compute|use|apply|identify|recognize|derive|select/i.test(s); const isGeneric = (s: string) => /step-by-step|correct formula|units properly/i.test(s); pits = pits.filter(p => p && !looksLikeStep(p) && !isGeneric(p)); (ensured.solution as any).pitfalls = Array.from(new Set(pits)).slice(0, 5); try { console.log('[fn decode] pitfalls result', (ensured.solution as any).pitfalls); } catch {} } catch {} }
-    };
-
-    // Run synthesis and pitfalls (respect budget)
-    await Promise.allSettled([ runSynthesis(), runPitfalls() ]);
-    consumeUsageFromStage(usage_synth, 'synth');
-    consumeUsageFromStage(usage_pitfalls, 'pitfalls');
-
-    // Finalize answer if missing (budgeted)
-    if (!String(ensured.solution.finalAnswer || '').trim() && (!globalBudget || remainingBudget > 80)) {
-      try {
-        const finalizeInstr = `Return ONLY JSON: { finalAnswer: string, unit: string }`;
-        const fMsgs = [ { type: 'text', text: `Context:\n${JSON.stringify({ summary: parsedSummary, mcqs: ensured.mcqs }).slice(0, 3500)}` }, { type: 'text', text: finalizeInstr } ];
-        const fPrompt = estimateMessagesTokensAny(fMsgs);
-        const fMax = globalBudget ? Math.max(0, remainingBudget - fPrompt) : 120;
-        if (!globalBudget || fMax > 40) {
-          const controller = new AbortController();
-          const t = setTimeout(() => { try { controller.abort(); } catch {} }, 2500);
-          const finRes = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.0, messages: [ { role: 'user', content: fMsgs } ], max_tokens: globalBudget ? fMax : 120 }), signal: controller.signal as any });
-          let fd: any = null;
-          if (finRes.ok) { fd = await finRes.json(); const c = fd?.choices?.[0]?.message?.content || ''; try { const j = JSON.parse(c); ensured.solution.finalAnswer = String(j.finalAnswer || '').slice(0, 120); ensured.solution.unit = String(j.unit || '').slice(0, 30); } catch {} }
-          try { clearTimeout(t); } catch {}
-          consumeUsageFromStage((fd as any)?.usage, 'finalize');
+        const blocks = content.split(/\n\n|\r\n\r\n/).filter(Boolean).slice(0, marks);
+        for (let i = 0; i < blocks.length && salvageAgain.length < marks; i++) {
+          const b = blocks[i];
+          const stem = b.replace(/\s+/g, ' ').slice(0, 240) || `Step ${i+1}: choose next action`;
+          const opts = [ 'Use governing relation', 'Substitute known values', 'Compute result', 'Check units' ];
+          salvageAgain.push({ id: `sv2-${Date.now()}-${i}`, question: stem, options: opts, correctAnswer: 0, hint: 'Pick the relation that advances the solution.', explanation: 'Use relation, then substitute and compute.', step: i + 1 } as any);
         }
       } catch {}
+      ensured.mcqs = salvageAgain.slice(0, marks);
     }
 
-    // Build working steps, keyFormulas, keyPoints (existing logic continues)
-    // ... existing code remains unchanged from earlier after this point ...
+    // Ensure solution fields
+    ensured.solution = ensured.solution || {}; if (!Array.isArray(ensured.solution.workingSteps)) ensured.solution.workingSteps = []; if (!Array.isArray(ensured.solution.keyFormulas)) ensured.solution.keyFormulas = [];
 
-    // Normalize MCQs and enforce count (existing logic continues)
-    // ... existing code remains unchanged ...
+    dbgCounts.afterFinal = Array.isArray(ensured.mcqs) ? ensured.mcqs.length : 0;
+    try { console.log('[fn decode] mcq counts', dbgCounts); } catch {}
 
-    // Aggregate usage across stages
+    // Aggregate usage and respond
     const sumUsage = (arr: any[]) => { const tot = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } as any; for (const u of arr) { if (!u) continue; tot.prompt_tokens += Number(u.prompt_tokens || 0); tot.completion_tokens += Number(u.completion_tokens || 0); tot.total_tokens += Number(u.total_tokens || 0); } return tot; };
-    const usageBreakdown = { stages: { parse: usage_parse, generate: usage_generate_local, synth: usage_synth, pitfalls: usage_pitfalls }, totals: sumUsage([usage_parse, usage_generate_local, usage_synth, usage_pitfalls]) };
+    const usageBreakdown = { stages: { parse: usage_parse, generate: usage, synth: usage_synth, pitfalls: usage_pitfalls }, totals: sumUsage([usage_parse, usage, usage_synth, usage_pitfalls]) };
     try { console.log('[fn decode] token usage breakdown', usageBreakdown); } catch {}
-    return respond(200, { ...ensured, usage: usageBreakdown, meta: { hit_generate_cap: hitGenerateCap, global_budget: globalBudget || null, remaining_budget: globalBudget ? remainingBudget : null, retrieval: retrievalMeta } });
+    return respond(200, { ...ensured, usage: usageBreakdown, meta: { hit_generate_cap: hitGenerateCap, global_budget: globalBudget || null, remaining_budget: globalBudget ? remainingBudget : null, debug_counts: dbgCounts, retrieval: retrievalMeta } });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
