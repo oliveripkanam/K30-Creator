@@ -159,9 +159,17 @@ export function RecentPerformanceCardContainer({ userId, onOpenHistory }: Props)
       const avgAccuracy = answeredItems.length > 0 ? Math.round(answeredItems.reduce((s, it) => s + it.accuracy, 0) / answeredItems.length) : 0;
       const avgMarks = attemptCount > 0 ? Number((deduped.reduce((s, it) => s + it.marks, 0) / attemptCount).toFixed(1)) : 0;
       const tokensTotal = deduped.reduce((s, it) => s + it.tokensEarned, 0);
-      const times = deduped.map(it => it.timeSpentMinutes).sort((a, b) => a - b);
-      const mid = Math.floor(times.length / 2);
-      const medianTime = times.length === 0 ? 0 : times.length % 2 === 1 ? times[mid] : Math.round((times[mid - 1] + times[mid]) / 2);
+      // Compute median in SECONDS to avoid rounding-to-zero for short durations, then convert to minutes (float)
+      const secondsList = deduped
+        .map(it => Math.max(0, Math.round((it.timeSpentMinutes || 0) * 60)))
+        .sort((a, b) => a - b);
+      const mid = Math.floor(secondsList.length / 2);
+      const medianSeconds = secondsList.length === 0
+        ? 0
+        : secondsList.length % 2 === 1
+          ? secondsList[mid]
+          : Math.round((secondsList[mid - 1] + secondsList[mid]) / 2);
+      const medianTime = medianSeconds / 60; // keep as minutes (float)
       const aggs: PerformanceAggregates = { avgAccuracy, attemptCount, avgMarks, medianTime, tokensTotal };
 
       setDecodes(deduped);
