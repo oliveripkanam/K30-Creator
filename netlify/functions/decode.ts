@@ -23,7 +23,8 @@ export default async (req: Request) => {
   const subject = (payload.subject || '').toString().trim();
   const syllabus = (payload.syllabus || '').toString().trim();
   const level = (payload.level || '').toString().trim();
-  const userMaxTokens = (() => { const n = Number((payload as any)?.maxTokens); return Number.isFinite(n) ? Math.max(200, Math.min(1200, Math.floor(n))) : 0; })();
+  // Interpret client value as a TOTAL BUDGET for the generate stage (prompt + completion)
+  const userTotalBudget = (() => { const n = Number((payload as any)?.maxTokens); return Number.isFinite(n) ? Math.max(200, Math.min(6000, Math.floor(n))) : 0; })();
   if (!text && images.length === 0) return respond(400, { error: "Missing 'text' or 'images'" });
   dbg('input summary', { textLen: text.length, marks, images: images.length });
 
@@ -173,6 +174,50 @@ export default async (req: Request) => {
       const body = retrievedSnippets.map((s, i) => `(${i+1}) ${s}`).join('\n');
       genContent.unshift({ type: 'text', text: `${header}\n${body}` });
     }
+
+    // Enforce user total budget (prompt + completion) for the generate stage by estimating prompt tokens
+    const estimateTokens = (s: string): number => Math.ceil(String(s || '').length / 4);
+    const estimateMessagesTokens = (arr: any[]): number => {
+      let chars = 0; for (const m of arr) if (m?.type === 'text') chars += String(m.text || '').length; return estimateTokens('' + chars);
+    };
+    const minCompletion = 120; // ensure some space for completion
+    const targetBudget = userTotalBudget || 0; // 0 means use default
+    let promptEst = estimateMessagesTokens(genContent);
+    if (targetBudget && promptEst + minCompletion > targetBudget) {
+      // Trim retrieved snippets first, then original text header, to fit budget
+      const trimTo = (maxChars: number) => (s: string) => s.slice(0, Math.max(0, maxChars));
+      const recompute = () => estimateMessagesTokens(genContent);
+      const reduceSnippets = () => {
+        for (let i = 0; i < genContent.length; i++) {
+          const c = genContent[i];
+          if (c?.type === 'text' && /Retrieved Context/.test(String(c.text || ''))) {
+            // Aggressively trim retrieved block
+            const header = 'Retrieved Context (use for facts, avoid copying):\n';
+            const lines = String(c.text || '').split('\n').filter(Boolean);
+            const trimmed = [lines[0], ...lines.slice(1).slice(0, 2).map(trimTo(220))].join('\n');
+            genContent[i] = { type: 'text', text: trimmed };
+            break;
+          }
+        }
+      };
+      const reduceUserText = () => {
+        for (let i = 0; i < genContent.length; i++) {
+          const c = genContent[i];
+          if (c?.type === 'text' && c.text && !/ProblemSummary:|Retrieved Context/.test(c.text)) {
+            genContent[i] = { type: 'text', text: String(c.text).slice(0, 600) };
+            break;
+          }
+        }
+      };
+      reduceSnippets();
+      promptEst = recompute();
+      if (promptEst + minCompletion > targetBudget) {
+        reduceUserText();
+        promptEst = recompute();
+      }
+    }
+    const computedMaxCompletion = targetBudget ? Math.max(50, Math.min(1200, targetBudget - promptEst)) : 450;
+    try { console.log('[fn decode] token budget', { targetBudget, promptEst, max_completion: computedMaxCompletion }); } catch {}
     // Attach images again if any
     if (hasImage) {
       for (let i = 0; i < Math.min(2, images.length); i++) {
@@ -189,7 +234,7 @@ export default async (req: Request) => {
         response_format: { type: 'json_object' },
         temperature: 0.1,
         messages: [ { role: 'user', content: genContent } ],
-        max_tokens: (userMaxTokens || 450)
+        max_tokens: computedMaxCompletion
       }),
       signal: genController.signal as any
     });
@@ -237,7 +282,7 @@ export default async (req: Request) => {
       });
     } catch {}
     if (finishReason === 'length') {
-      try { console.warn('[fn decode] token limit reached on generate', { max_tokens: (userMaxTokens || 450) }); } catch {}
+      try { console.warn('[fn decode] token limit reached on generate', { max_tokens: computedMaxCompletion, budget_total: (targetBudget || null), prompt_estimate: promptEst }); } catch {}
     }
     
     if (!content?.trim()) {
@@ -832,7 +877,7 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
       totals: sumUsage([usage_parse, usage_generate, usage_synth, usage_pitfalls])
     };
     try { console.log('[fn decode] token usage breakdown', usageBreakdown); } catch {}
-    return respond(200, { ...ensured, usage: usageBreakdown, meta: { generate_finish_reason: finishReason || null, generate_max_tokens: (userMaxTokens || 450), retrieval: retrievalMeta } });
+    return respond(200, { ...ensured, usage: usageBreakdown, meta: { generate_finish_reason: finishReason || null, generate_max_tokens: computedMaxCompletion, generate_prompt_estimate: promptEst, generate_total_budget: (targetBudget || null), retrieval: retrievalMeta } });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });

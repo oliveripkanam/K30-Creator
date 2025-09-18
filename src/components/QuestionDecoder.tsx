@@ -359,6 +359,13 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
               const pct = Math.min(100, Math.round((used / maxTok) * 100));
               console.log('[decoder] generate completion used:', `${pct}% (${used}/${maxTok})`);
             }
+            const promptEst = Number(data?.meta?.generate_prompt_estimate || 0);
+            const totalBudget = Number(data?.meta?.generate_total_budget || 0);
+            if (totalBudget > 0) {
+              const totalUsed = Number(genUse?.prompt_tokens || 0) + Number(genUse?.completion_tokens || 0);
+              const pctTotal = Math.min(100, Math.round((totalUsed / totalBudget) * 100));
+              console.log('[decoder] total budget used:', `${pctTotal}% (${totalUsed}/${totalBudget})`);
+            }
           } catch {}
           if (data?.meta?.generate_finish_reason) {
             console.warn('[decoder] generate finish reason:', data.meta.generate_finish_reason, 'max_tokens:', data.meta.generate_max_tokens);
