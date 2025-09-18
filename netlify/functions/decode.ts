@@ -339,6 +339,7 @@ export default async (req: Request) => {
     let content: string = choice?.message?.content || choice?.delta?.content || '';
     let usage: any = (data as any)?.usage;
     const finishReason = choice?.finish_reason;
+    const hitGenerateCap = finishReason === 'length';
     try { 
       console.log('[fn decode] choice details:', {
         finish_reason: finishReason,
@@ -347,7 +348,7 @@ export default async (req: Request) => {
         first_100_chars: content?.slice(0, 100)
       });
     } catch {}
-    if (finishReason === 'length') {
+    if (hitGenerateCap) {
       try { console.warn('[fn decode] token limit reached on generate', { max_tokens: computedMaxCompletion, budget_total: (globalBudget || null), prompt_estimate: promptEst }); } catch {}
     }
 
@@ -483,8 +484,17 @@ export default async (req: Request) => {
     };
     const letterOnly = (arr: any[]) => Array.isArray(arr) && arr.length === 4 && arr.every(v => typeof v === 'string' && /^[A-Da-d]$/.test(v.trim().replace(/[).]/g,'')));
 
-    if (!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) { try { console.warn('[fn decode] invalid model output; attempting salvage', { preview: content.slice(0, 200) }); } catch {}; const salvagedMcqs: MCQ[] = [] as any; try { const qMatches = Array.from(content.matchAll(/\"question\"\s*:\s*\"([\s\S]*?)\"/g)); for (let i = 0; i < Math.min(qMatches.length, marks); i++) { const qText = (qMatches[i]?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 280); if (!qText) continue; const start = qMatches[i].index ?? 0; const end = (qMatches[i+1]?.index ?? content.length); const region = content.slice(start, end); let options: string[] | null = null; const optJson = region.match(/\"options\"\s*:\s*\[(.*?)\]/s); if (optJson && optJson[1]) { try { const jsonStr = `[${optJson[1]}]`; const parsedArr = JSON.parse(jsonStr); options = normalizeOptions(parsedArr); } catch {} } if (!options) { const choicesJson = region.match(/\"choices\"\s*:\s*\[(.*?)\]/s); if (choicesJson && choicesJson[1]) { try { const jsonStr = `[${choicesJson[1]}]`; const parsedArr = JSON.parse(jsonStr); options = normalizeOptions(parsedArr); } catch {} } } if (!options) { const lettered: string[] = []; const rgx = /\n?\s*([A-Da-d])[).:\-]\s*([^\n\r]+)[\n\r]?/g; let m; while ((m = rgx.exec(region)) && lettered.length < 4) { lettered.push(String(m[2] || '').trim()); } if (lettered.length === 4) options = lettered; } let correctIdx = 0; const mNum = region.match(/\"correctAnswer\"\s*:\s*(\d+)/); if (mNum) correctIdx = Math.max(0, Math.min(3, Number(mNum[1]))); const mLbl = region.match(/\"correct(Label|Option)?\"\s*:\s*\"([A-Da-d])\"/); if (mLbl) { const L = mLbl[2].toUpperCase().charCodeAt(0) - 65; if (!Number.isNaN(L)) correctIdx = Math.max(0, Math.min(3, L)); } if (!options || letterOnly(options)) { options = ['State the relevant formula/law','Substitute given values','Compute the intermediate result','None of the above']; correctIdx = 0; } salvagedMcqs.push({ id: `sv-${Date.now()}-${i}`, question: qText, options, correctAnswer: correctIdx, hint: 'Think about the next logical step toward the final answer.', explanation: 'Proceed step-by-step using the relevant formula before substituting numbers.', step: i + 1, calculationStep: undefined } as any); } } catch {} const safeSolution: SolutionSummary = { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] }; parsed = { mcqs: salvagedMcqs, solution: safeSolution } as any; }
+    // Build ensured struct (or salvage)
+    if (!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) { 
+      try { console.warn('[fn decode] invalid model output; attempting salvage', { preview: content.slice(0, 200) }); } catch {};
+      parsed = { mcqs: [], solution: { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] } as any } as any;
+    }
     const ensured = (parsed as any) as { mcqs: any[]; solution: any };
+
+    // If the generate cap was hit, do not return any MCQs
+    if (hitGenerateCap) {
+      ensured.mcqs = [];
+    }
 
     // Server-side validator...
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
@@ -493,8 +503,8 @@ export default async (req: Request) => {
     if (Array.isArray(ensured.mcqs)) { ensured.mcqs = ensured.mcqs.filter((m: any) => { const q = String(m?.question || ''); const opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : []; if (isRecallQuestion(q)) return false; if (opts.length !== 4) return false; if (opts.some((o: string) => isMetaOption(o))) return false; if (isConceptual && isMultiItemConceptual(q)) return false; return true; }); }
     if (!Array.isArray(ensured.mcqs)) ensured.mcqs = [];
 
-    // Replacement generation only if budget allows
-    if ((ensured.mcqs as any[]).length < marks && (!globalBudget || remainingBudget > 180)) {
+    // Replacement generation only if budget allows AND cap not hit
+    if ((ensured.mcqs as any[]).length < marks && (!globalBudget || remainingBudget > 180) && !hitGenerateCap) {
       try {
         const missing = Math.max(0, marks - (ensured.mcqs as any[]).length);
         const badNote = isConceptual ? 'Replace invalid or missing steps. Conceptual mode: ONE atomic fact per MCQ...' : 'Replace invalid or missing steps. Quantitative mode: numeric or formula options...';
@@ -591,7 +601,7 @@ export default async (req: Request) => {
     const sumUsage = (arr: any[]) => { const tot = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } as any; for (const u of arr) { if (!u) continue; tot.prompt_tokens += Number(u.prompt_tokens || 0); tot.completion_tokens += Number(u.completion_tokens || 0); tot.total_tokens += Number(u.total_tokens || 0); } return tot; };
     const usageBreakdown = { stages: { parse: usage_parse, generate: usage_generate_local, synth: usage_synth, pitfalls: usage_pitfalls }, totals: sumUsage([usage_parse, usage_generate_local, usage_synth, usage_pitfalls]) };
     try { console.log('[fn decode] token usage breakdown', usageBreakdown); } catch {}
-    return respond(200, { ...ensured, usage: usageBreakdown, meta: { generate_finish_reason: finishReason || null, generate_max_tokens: computedMaxCompletion, generate_prompt_estimate: promptEst, global_budget: globalBudget || null, used_total: globalBudget ? (globalBudget - remainingBudget) : null, remaining_budget: globalBudget ? remainingBudget : null, retrieval: retrievalMeta } });
+    return respond(200, { ...ensured, usage: usageBreakdown, meta: { hit_generate_cap: hitGenerateCap, global_budget: globalBudget || null, remaining_budget: globalBudget ? remainingBudget : null, retrieval: retrievalMeta } });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
