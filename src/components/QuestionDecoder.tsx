@@ -682,7 +682,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle>Question Analysis</CardTitle>
-              <Badge variant="secondary">{question.marks} marks</Badge>
+              {/* hide marks badge to avoid confusion when AI decides */}
             </div>
             <CardDescription>
               Processing your {question.type === 'text' ? 'written' : question.type} question
@@ -742,9 +742,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
                     </svg>
                   </div>
                   <p className="text-green-600 font-medium">Analysis Complete!</p>
-                  <p className="text-sm text-muted-foreground">
-                    Generated {question.marks} step-by-step questions to guide you through the solution.
-                  </p>
+                  {/* Hide count line to avoid mismatches */}
                 </div>
               )}
             </div>

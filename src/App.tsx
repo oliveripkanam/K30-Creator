@@ -1091,7 +1091,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background">
       {isDashLoading && (
-        <div className="fixed inset-0 z-50 bg-white flex items-center justify-center select-none" role="status" aria-busy="true">
+        <div className="fixed inset-0 global-overlay bg-white/90 backdrop-blur-sm flex items-center justify-center select-none" role="status" aria-busy="true">
           <div className="flex flex-col items-center space-y-3">
             <div className="w-10 h-10 rounded-full border-4 border-black/20 border-t-black animate-spin" />
             <p className="text-sm text-black">Working…</p>

@@ -127,6 +127,11 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Ensure the global spinner overlay always sits on top */
+  .global-overlay {
+    z-index: 9999 !important;
+  }
 }
 
 /**

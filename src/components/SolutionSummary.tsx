@@ -5,7 +5,7 @@ import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 
 interface Question {
-	id: string;
+		id: string;
 	content: string;
 	extractedText?: string;
 	marks: number;
@@ -102,7 +102,7 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
 					<CardHeader>
 						<CardTitle className="flex items-center justify-between">
 							Original Question
-							<Badge variant="secondary">{originalQuestion.marks} marks</Badge>
+							{/* hide marks badge to avoid mismatch when AI decides */}
 						</CardTitle>
 					</CardHeader>
 					<CardContent>
@@ -206,14 +206,14 @@ export function SolutionSummaryComponent({ originalQuestion, solution, onComplet
 					</CardHeader>
 					<CardContent>
 						<div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-center">
-							<div>
-								<div className="text-2xl font-bold text-blue-700">{originalQuestion.marks}</div>
-								<div className="text-sm text-blue-600">Marks Earned</div>
-							</div>
-							<div>
-								<div className="text-2xl font-bold text-blue-700">{solution.workingSteps.length}</div>
-								<div className="text-sm text-blue-600">Steps Completed</div>
-							</div>
+						<div>
+							<div className="text-2xl font-bold text-blue-700">{solution.workingSteps.length}</div>
+							<div className="text-sm text-blue-600">Steps Completed</div>
+						</div>
+						<div>
+							<div className="text-2xl font-bold text-blue-700">{solution.keyFormulas.length}</div>
+							<div className="text-sm text-blue-600">Formulas Applied</div>
+						</div>
 							<div>
 								<div className="text-2xl font-bold text-blue-700">{solution.keyFormulas.length}</div>
 								<div className="text-sm text-blue-600">Formulas Applied</div>
