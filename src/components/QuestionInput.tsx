@@ -40,26 +40,27 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
   const [syllabus, setSyllabus] = useState<string>('');
   const [level, setLevel] = useState<string>('');
   const [autoMarks, setAutoMarks] = useState<boolean>(false);
-  const [maxTokens, setMaxTokens] = useState<number>(() => {
-    try {
-      const raw = localStorage.getItem('k30:maxTokens') || '';
-      const n = parseInt(raw, 10);
-      return Number.isFinite(n) ? Math.max(200, Math.min(1000000, n)) : 1200;
-    } catch { return 450; }
-  });
-  // Track stored applied value to reflect applied state
+
+  // Store only the applied value in localStorage; the input field starts empty
   const [storedMaxTokens, setStoredMaxTokens] = useState<number>(() => {
     try {
       const raw = localStorage.getItem('k30:maxTokens') || '';
       const n = parseInt(raw, 10);
-      return Number.isFinite(n) ? n : 0;
+      return Number.isFinite(n) ? Math.max(200, Math.min(1000000, n)) : 0;
     } catch { return 0; }
   });
-  const isApplied = Number(storedMaxTokens) === Number(maxTokens);
+  const [maxTokensInput, setMaxTokensInput] = useState<string>('');
+  const parseInput = (s: string) => {
+    const n = parseInt(s, 10);
+    if (!Number.isFinite(n)) return NaN;
+    return Math.max(200, Math.min(1000000, Math.floor(n)));
+  };
+  const isApplied = Number.isFinite(parseInt(maxTokensInput, 10)) && parseInput(maxTokensInput) === storedMaxTokens && storedMaxTokens > 0;
   const applyMaxTokens = () => {
-    const clamped = Math.max(200, Math.min(1000000, Math.floor(Number(maxTokens) || 1200)));
-    setMaxTokens(clamped);
-    try { localStorage.setItem('k30:maxTokens', String(clamped)); setStoredMaxTokens(clamped); } catch {}
+    const parsed = parseInput(maxTokensInput);
+    if (!Number.isFinite(parsed)) return; // ignore invalid/empty input
+    try { localStorage.setItem('k30:maxTokens', String(parsed)); } catch {}
+    setStoredMaxTokens(parsed as number);
   };
 
   const prevent = (e: React.DragEvent) => {
@@ -67,22 +68,9 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
     e.stopPropagation();
   };
 
-  const onPhotoDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    prevent(e);
-    setIsDraggingPhoto(true);
-  };
-  const onPhotoDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    prevent(e);
-    setIsDraggingPhoto(false);
-  };
-  const onPhotoDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    prevent(e);
-    setIsDraggingPhoto(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      setPhotoFile(file);
-    }
-  };
+  const onPhotoDragOver = (e: React.DragEvent<HTMLDivElement>) => { prevent(e); setIsDraggingPhoto(true); };
+  const onPhotoDragLeave = (e: React.DragEvent<HTMLDivElement>) => { prevent(e); setIsDraggingPhoto(false); };
+  const onPhotoDrop = (e: React.DragEvent<HTMLDivElement>) => { prevent(e); setIsDraggingPhoto(false); const file = e.dataTransfer.files?.[0]; if (file && file.type.startsWith('image/')) { setPhotoFile(file); } };
 
   const isAllowedDoc = (file: File) => {
     const name = file.name.toLowerCase();
@@ -93,45 +81,14 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       name.endsWith('.pdf') || name.endsWith('.doc') || name.endsWith('.docx')
     );
   };
-  const onFileDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    prevent(e);
-    setIsDraggingFile(true);
-  };
-  const onFileDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    prevent(e);
-    setIsDraggingFile(false);
-  };
-  const onFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    prevent(e);
-    setIsDraggingFile(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file && isAllowedDoc(file)) {
-      setUploadFile(file);
-    }
-  };
+  const onFileDragOver = (e: React.DragEvent<HTMLDivElement>) => { prevent(e); setIsDraggingFile(true); };
+  const onFileDragLeave = (e: React.DragEvent<HTMLDivElement>) => { prevent(e); setIsDraggingFile(false); };
+  const onFileDrop = (e: React.DragEvent<HTMLDivElement>) => { prevent(e); setIsDraggingFile(false); const file = e.dataTransfer.files?.[0]; if (file && isAllowedDoc(file)) { setUploadFile(file); } };
 
-  const readAsBase64 = (file: File) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('file read failed'));
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      const idx = result.indexOf(',');
-      resolve(idx >= 0 ? result.slice(idx + 1) : result);
-    };
-    reader.readAsDataURL(file);
-  });
+  const readAsBase64 = (file: File) => new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('file read failed')); reader.onload = () => { const result = String(reader.result || ''); const idx = result.indexOf(','); resolve(idx >= 0 ? result.slice(idx + 1) : result); }; reader.readAsDataURL(file); });
 
-  // Added: lightweight multi-question detector for text input
   const looksLikeMultipleQuestions = (s: string): boolean => {
-    try {
-      const lines = String(s || '').split(/\r?\n/).map(l => l.trim());
-      let count = 0;
-      for (const ln of lines) {
-        if (/^(?:\d{1,2}[).]|\([a-d]\)|[a-d]\)|\d+\s*[a-d]\)|\d+\.)/i.test(ln)) count++;
-      }
-      const inlineHits = (s.match(/\b(?:\(i+\)|\d+\.|[A-Da-d]\))/g) || []).length;
-      return count >= 2 || inlineHits >= 3;
-    } catch { return false; }
+    try { const lines = String(s || '').split(/\r?\n/).map(l => l.trim()); let count = 0; for (const ln of lines) { if (/^(?:\d{1,2}[).]|\([a-d]\)|[a-d]\)|\d+\s*[a-d]\)|\d+\.)/i.test(ln)) count++; } const inlineHits = (s.match(/\b(?:\(i+\)|\d+\.|[A-Da-d]\))/g) || []).length; return count >= 2 || inlineHits >= 3; } catch { return false; }
   };
   const multiText = activeTab === 'text' ? looksLikeMultipleQuestions(textContent) : false;
 
@@ -155,7 +112,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
         break;
       case 'text':
         if (!textContent.trim()) return;
-        if (looksLikeMultipleQuestions(textContent)) return; // block submit; UI shows warning below
+        if (looksLikeMultipleQuestions(textContent)) return;
         content = textContent;
         type = 'text';
         break;
@@ -169,7 +126,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       if (type === 'file') guess = 6;
       if (type === 'photo') guess = 5;
       if (len > 600) guess = 7; else if (len > 300) guess = 6; else if (len > 140) guess = 5; else if (len > 60) guess = 4; else guess = 3;
-      if(/(\(i\)|\(ii\)|\(iii\)|\ba\)|\bb\)|\bc\))/i.test(text)) guess += 1;
+      if (/(\(i\)|\(ii\)|\(iii\)|\ba\)|\bb\)|\bc\))/i.test(text)) guess += 1;
       const digits = (text.match(/\d/g) || []).length; if (digits > 10) guess += 1;
       if (/math|phys/i.test(subject)) guess += 1;
       if (/biology|chem/i.test(subject) && guess > 6) guess -= 1;
@@ -183,20 +140,15 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
 
   const isValid = () => {
     switch (activeTab) {
-      case 'photo':
-        return photoFile && marks > 0;
-      case 'file':
-        return uploadFile && marks > 0;
-      case 'text':
-        return textContent.trim() && marks > 0 && !multiText;
-      default:
-        return false;
+      case 'photo': return photoFile && marks > 0;
+      case 'file': return uploadFile && marks > 0;
+      case 'text': return textContent.trim() && marks > 0 && !multiText;
+      default: return false;
     }
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-6xl mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2 sm:space-x-3">
@@ -347,13 +299,16 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
               <div className="flex items-center gap-3 mt-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Max tokens</span>
-                  <Input id="max-tokens" type="number" min={200} max={1000000} step={100} value={maxTokens} onChange={(e) => setMaxTokens(() => { const n = parseInt(e.target.value, 10); return Number.isFinite(n) ? n : 450; })} className="w-28" />
+                  <Input id="max-tokens" type="number" min={200} max={1000000} step={100} placeholder="Enter token budget" value={maxTokensInput} onChange={(e) => setMaxTokensInput(e.target.value)} className="w-36" />
                 </div>
                 <Button type="button" size="sm" onClick={applyMaxTokens} variant={isApplied ? 'default' : 'outline'} className={isApplied ? 'bg-green-600 text-white hover:bg-green-700' : ''}>
                   {isApplied ? 'Applied' : 'Apply'}
                 </Button>
+                {storedMaxTokens > 0 && (
+                  <Badge variant="secondary" className="text-xs">Current: {storedMaxTokens.toLocaleString()}</Badge>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">Total token budget (global) across all stages. Range 200–1,000,000. Click Apply to save for the next decode.</p>
+              <p className="text-xs text-muted-foreground">Global token budget used by the next decode. Saved when you click Apply.</p>
             </div>
 
             {/* Submit Button */}
