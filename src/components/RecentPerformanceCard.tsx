@@ -389,7 +389,7 @@ export const RecentPerformanceCard: React.FC<RecentPerformanceCardProps> = ({
         <KPIChip
           icon={<Clock className="w-4 h-4" />}
           label="Median Time"
-          value={`${Math.floor(Math.max(0, Math.round((safeAggregates.medianTime || 0) * 60)) / 60)} min ${Math.max(0, Math.round((safeAggregates.medianTime || 0) * 60)) % 60}s`}
+          value={(() => { const secs = Math.max(0, Math.round((safeAggregates.medianTime || 0) * 60)); const m = Math.floor(secs/60); const s = secs % 60; return m<=0?`${s}s`:`${m} min ${s}s`; })()}
         />
       </div>
 

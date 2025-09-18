@@ -94,6 +94,51 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
           }
         }
         if (aborted) return;
+
+        // Fetch per-question mcq_steps for correctness (limited to the listed questions)
+        const ids = (rows || []).map((q: any) => q.id);
+        let steps: any[] = [];
+        try {
+          const stepsPromise = supabase
+            .from('mcq_steps')
+            .select('question_id, step_index, is_correct, user_answer, correct_label')
+            .in('question_id', ids);
+          const stepsTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('steps timeout after 6s')), 6000));
+          const { data, error } = (await Promise.race([stepsPromise, stepsTimeout])) as any;
+          if (error) throw error;
+          steps = data || [];
+        } catch {
+          // REST fallback with in.() filter
+          try {
+            const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string;
+            const envAnon = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string;
+            let accessToken = '';
+            for (let i = 0; i < localStorage.length; i++) {
+              const k = localStorage.key(i) || '';
+              if (k.startsWith('sb-') && k.endsWith('-auth-token')) {
+                const v = localStorage.getItem(k) || '';
+                const parsed = JSON.parse(v || '{}');
+                accessToken = parsed?.access_token || '';
+                if (accessToken) break;
+              }
+            }
+            const list = `(${ids.map(id => encodeURIComponent(id)).join(',')})`;
+            const url = `${envUrl}/rest/v1/mcq_steps?select=question_id,step_index,is_correct,user_answer,correct_label&question_id=in.${list}`;
+            const resp = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}`, 'apikey': envAnon } as any });
+            if (resp.ok) steps = await resp.json();
+          } catch {}
+        }
+
+        // Group correctness by question_id → arrays of step numbers (1-based)
+        const byQ = new Map<string, { correct: number[]; wrong: number[] }>();
+        for (const s of steps) {
+          const entry = byQ.get(s.question_id) || { correct: [], wrong: [] };
+          const stepNum = Number(s.step_index ?? 0) + 1;
+          const isTrue = s.is_correct === true || (s.user_answer && s.correct_label && String(s.user_answer).toUpperCase() === String(s.correct_label).toUpperCase());
+          if (isTrue) entry.correct.push(stepNum); else if (s.user_answer) entry.wrong.push(stepNum);
+          byQ.set(s.question_id, entry);
+        }
+
         const mapped: CompletedQuestion[] = (rows || []).map((q: any) => ({
           id: q.id,
           content: q.original_input || '',
@@ -105,7 +150,9 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
           tokensEarned: q.tokens_earned || 0,
           mcqsGenerated: q.marks || 0,
           timeSpent: ((q.time_spent_seconds ?? null) != null ? Number(q.time_spent_seconds) / 60 : (q.time_spent_minutes || 0)),
-          solutionSummary: q.solution_summary ? JSON.parse(q.solution_summary) : { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] }
+          solutionSummary: q.solution_summary ? JSON.parse(q.solution_summary) : { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] },
+          // attach correctness arrays for list chips
+          ...(byQ.get(q.id) || { correct: [], wrong: [] }) as any,
         }));
         setCompletedQuestions(mapped);
       } catch (e: any) {
@@ -433,26 +480,23 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
                       <div>
                         <p className="text-sm font-medium mb-2">Correct Steps</p>
                         <div className="flex flex-wrap gap-2">
-                          {(() => {
-                            // Read cached last score if available for a quick approximation
-                            const last = (window as any).__k30_lastScore as { correct: number[]; wrong: number[] } | undefined;
-                            const correctSteps = Array.isArray(last?.correct) ? last!.correct : [];
-                            return correctSteps.length ? correctSteps.map((s, i) => (
-                              <Badge key={i} variant="secondary" className="text-xs">Step {s}</Badge>
-                            )) : <span className="text-xs text-muted-foreground">Shown after opening details</span>;
-                          })()}
+                          {(question as any).correct?.length
+                            ? (question as any).correct.slice(0, 6).map((s: number, i: number) => (
+                                <Badge key={i} variant="secondary" className="text-xs">Step {s}</Badge>
+                              ))
+                            : <span className="text-xs text-muted-foreground">Shown after opening details</span>
+                          }
                         </div>
                       </div>
                       <div>
                         <p className="text-sm font-medium mb-2">Incorrect Steps</p>
                         <div className="flex flex-wrap gap-2">
-                          {(() => {
-                            const last = (window as any).__k30_lastScore as { correct: number[]; wrong: number[] } | undefined;
-                            const wrongSteps = Array.isArray(last?.wrong) ? last!.wrong : [];
-                            return wrongSteps.length ? wrongSteps.map((s, i) => (
-                              <Badge key={i} variant="destructive" className="text-xs">Step {s}</Badge>
-                            )) : <span className="text-xs text-muted-foreground">Shown after opening details</span>;
-                          })()}
+                          {(question as any).wrong?.length
+                            ? (question as any).wrong.slice(0, 6).map((s: number, i: number) => (
+                                <Badge key={i} variant="destructive" className="text-xs">Step {s}</Badge>
+                              ))
+                            : <span className="text-xs text-muted-foreground">Shown after opening details</span>
+                          }
                         </div>
                       </div>
                     </div>
