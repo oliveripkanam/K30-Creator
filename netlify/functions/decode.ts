@@ -175,9 +175,12 @@ export default async (req: Request) => {
           try { parsedSummary = JSON.parse(c); } catch { const m = c.match(/\{[\s\S]*\}/); if (m) { try { parsedSummary = JSON.parse(m[0]); } catch {} } }
           consumeUsageFromStage(usage_parse, 'parse');
         }
+      } else {
+        // Budget too low: synthesize a minimal parsed summary to avoid extra calls
+        parsedSummary = { givens: [], relations: [], targets: [], constraints: [], context: '', subjectHint: 'mixed', plan: Array.from({ length: Math.max(1, Math.min(8, marks)) }, (_, i) => ({ step: i + 1, goal: 'identify concept', mustProduce: 'fact' })) };
       }
     }
-    if (!parsedSummary) {
+    if (!parsedSummary && !globalBudget) {
       const parseRes = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey }, body: JSON.stringify({ response_format: { type: 'text' }, temperature: 0.1, messages: [ { role: 'user', content: [ { type: 'text', text: userText.slice(0, 900) }, { type: 'text', text: parseInstruction }, ...baseContent.filter((p) => p.type === 'image_url') ] } ], max_tokens: 300 }) });
       dbg('step1(parse) status', parseRes.status);
       if (parseRes.ok) {
