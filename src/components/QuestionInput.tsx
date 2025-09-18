@@ -40,6 +40,18 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
   const [syllabus, setSyllabus] = useState<string>('');
   const [level, setLevel] = useState<string>('');
   const [autoMarks, setAutoMarks] = useState<boolean>(false);
+  const [maxTokens, setMaxTokens] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem('k30:maxTokens') || '';
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? Math.max(200, Math.min(1200, n)) : 450;
+    } catch { return 450; }
+  });
+  const applyMaxTokens = () => {
+    const clamped = Math.max(200, Math.min(1200, Math.floor(Number(maxTokens) || 450)));
+    setMaxTokens(clamped);
+    try { localStorage.setItem('k30:maxTokens', String(clamped)); } catch {}
+  };
 
   const prevent = (e: React.DragEvent) => {
     e.preventDefault();
@@ -457,6 +469,31 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
               <p className="text-xs text-muted-foreground">
                 {autoMarks ? 'AI will pick a suitable number of steps after you submit.' : 'This determines how many step-by-step questions we create.'}
               </p>
+            </div>
+
+            {/* AI Settings */}
+            <div className="space-y-2">
+              <Label htmlFor="max-tokens">AI Settings</Label>
+              <div className="flex items-center gap-3 mt-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Max tokens</span>
+                  <Input
+                    id="max-tokens"
+                    type="number"
+                    min={200}
+                    max={1200}
+                    step={50}
+                    value={maxTokens}
+                    onChange={(e) => setMaxTokens(() => {
+                      const n = parseInt(e.target.value, 10);
+                      return Number.isFinite(n) ? n : 450;
+                    })}
+                    className="w-28"
+                  />
+                </div>
+                <Button type="button" size="sm" onClick={applyMaxTokens}>Apply</Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Used to cap the AI generation length. Range 200–1200. Applied to the next decode.</p>
             </div>
 
             {/* Submit Button */}
