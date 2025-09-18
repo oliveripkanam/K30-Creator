@@ -233,10 +233,10 @@ const RecentListItem: React.FC<{
   onClick?: () => void;
 }> = ({ decode, onClick }) => {
   const getAccuracyColor = (accuracy: number) => {
-    if (accuracy >= 85) return 'bg-emerald-100 text-emerald-800';
-    if (accuracy >= 70) return 'bg-green-100 text-green-800';
-    if (accuracy >= 50) return 'bg-orange-100 text-orange-800';
-    return 'bg-red-100 text-red-800';
+    if (accuracy >= 90) return 'bg-emerald-600 text-white'; // dark green
+    if (accuracy >= 75) return 'bg-green-100 text-green-800'; // light green
+    if (accuracy >= 50) return 'bg-yellow-100 text-yellow-800'; // yellow
+    return 'bg-red-100 text-red-800'; // red
   };
 
   return (

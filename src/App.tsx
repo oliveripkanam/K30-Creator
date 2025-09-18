@@ -507,6 +507,7 @@ export default function App() {
         try { localStorage.setItem(lastKeyStorage, todayHK); } catch {}
       }
       
+      // Optimistically reflect +1 streak on the dashboard card immediately
       setUser((prev) => prev ? {
         ...prev,
         questionsDecoded: prev.questionsDecoded + 1,
