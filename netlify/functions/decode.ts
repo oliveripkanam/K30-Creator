@@ -533,16 +533,55 @@ export default async (req: Request) => {
     // If the generate cap was hit, do not return any MCQs
     if (hitGenerateCap) { ensured.mcqs = []; }
 
+    // Robust normalization of MCQs prior to filtering
+    const normalizeOptionsRobust = (raw: any): string[] | null => {
+      try {
+        if (Array.isArray(raw)) {
+          const arr = raw.map((v: any) => typeof v === 'string' ? v.trim() : String(v?.text ?? v?.value ?? v?.label ?? '').trim());
+          if (arr.filter(Boolean).length >= 4) return arr.filter(Boolean).slice(0,4);
+        }
+        if (raw && typeof raw === 'object') {
+          const keys = ['A','B','C','D'];
+          const arr = keys.map(k => String(raw[k] ?? '').trim());
+          if (arr.every(s => s.length > 0)) return arr;
+        }
+      } catch {}
+      return null;
+    };
+    const letterToIndex = (s: string): number => {
+      const m = String(s || '').trim();
+      if (/^[A-Da-d]$/.test(m)) return m.toUpperCase().charCodeAt(0) - 65;
+      const mm = m.match(/^[A-Da-d][).:\-]?$/); if (mm) return mm[0].toUpperCase().charCodeAt(0) - 65;
+      return -1;
+    };
+    if (Array.isArray(ensured.mcqs)) {
+      ensured.mcqs = ensured.mcqs.map((m: any, i: number) => {
+        const qText = stripCodeFences(String(m?.question || '')).slice(0, 500);
+        let opts = normalizeOptionsRobust(m?.options) ?? normalizeOptionsRobust(m?.choices);
+        let ca: number = typeof m?.correctAnswer === 'number' ? Number(m.correctAnswer) : -1;
+        if (ca < 0 && typeof m?.correct === 'string') ca = letterToIndex(m.correct);
+        if (ca < 0 && typeof m?.correct_label === 'string') ca = letterToIndex(m.correct_label);
+        if (!Array.isArray(opts)) opts = [];
+        if (opts.length > 4) opts = opts.slice(0,4);
+        if (opts.length === 4) { ca = Math.max(0, Math.min(3, Number.isFinite(ca) ? ca : 0)); }
+        return {
+          id: String(m?.id || `mcq-${Date.now()}-${i}`),
+          question: qText,
+          options: opts,
+          correctAnswer: Number.isFinite(ca) ? ca : 0,
+          hint: String(m?.hint || '').trim(),
+          explanation: String(m?.explanation || '').trim(),
+          step: Number(m?.step || (i + 1))
+        } as any;
+      });
+    }
+
     // Server-side validator (lenient options normalization)
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
     const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement|according to the text/i.test(q);
     const isMultiItemConceptual = (q: string) => /\b(two|both|select two|choose two|two short|two long|multiple)\b/i.test(q);
     if (Array.isArray(ensured.mcqs)) {
-      ensured.mcqs = ensured.mcqs.map((m: any) => {
-        let opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : [];
-        if (opts.length >= 4) opts = opts.slice(0, 4);
-        return { ...m, options: opts };
-      }).filter((m: any) => {
+      ensured.mcqs = ensured.mcqs.filter((m: any) => {
         const q = String(m?.question || '');
         const opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : [];
         if (!q || /^```/.test(q)) return false;
