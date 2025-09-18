@@ -448,13 +448,28 @@ export default async (req: Request) => {
     // Record usage for generation stage after final content is resolved
     let usage_generate_local = usage || null;
 
+    // Helpers for fenced JSON and sanitization
+    const extractJsonFromFences = (txt: string): any | null => {
+      try {
+        const fence = txt.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fence && fence[1]) {
+          const inner = fence[1].trim();
+          return JSON.parse(inner);
+        }
+      } catch {}
+      return null;
+    };
+    const stripCodeFences = (s: string): string => String(s || '').replace(/```[\s\S]*?```/g, ' ').replace(/\s+/g, ' ').trim();
+
     let parsed: DecodeResponse | null = null;
     try { 
       parsed = JSON.parse(content); 
     } catch { 
-      const m = content.match(/\{[\s\S]*\}/); 
-      if (m) {
-        try { parsed = JSON.parse(m[0]); } catch {}
+      const fromFence = extractJsonFromFences(content);
+      if (fromFence) { parsed = fromFence; }
+      if (!parsed) {
+        const m = content.match(/\{[\s\S]*\}/);
+        if (m) { try { parsed = JSON.parse(m[0]); } catch {} }
       }
     }
     try { console.log('[fn decode] parsed keys', Object.keys((parsed as any) || {})); } catch {}
@@ -469,19 +484,20 @@ export default async (req: Request) => {
       try { console.warn('[fn decode] invalid model output; attempting salvage'); } catch {}
       const salvagedMcqs: MCQ[] = [] as any;
       try {
+        const txt = stripCodeFences(content);
         // Extract questions heuristically
-        const qMatches = Array.from(content.matchAll(/\"question\"\s*:\s*\"([\s\S]*?)\"/g));
+        const qMatches = Array.from(txt.matchAll(/\"question\"\s*:\s*\"([\s\S]*?)\"/g));
         for (let i = 0; i < Math.min(qMatches.length, marks); i++) {
           const qText = (qMatches[i]?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 280);
           if (!qText) continue;
           const start = qMatches[i].index ?? 0;
-          const end = (qMatches[i+1]?.index ?? content.length);
-          const region = content.slice(start, end);
+          const end = (qMatches[i+1]?.index ?? txt.length);
+          const region = txt.slice(start, end);
           const normalizeOptions = (raw: any): string[] | null => {
             try {
               if (Array.isArray(raw)) {
                 const arr = raw.map((v: any) => typeof v === 'string' ? v.trim() : String(v?.text ?? v?.value ?? v?.label ?? '').trim());
-                if (arr.length === 4 && arr.every((s: string) => s.length > 1)) return arr.map((s: string) => s.replace(/^\s*[A-Da-d][).:\-]\s*/, '').trim());
+                if (arr.length >= 4) return arr.slice(0,4).map((s: string) => s.replace(/^\s*[A-Da-d][).:\-]\s*/, '').trim());
               }
             } catch {}
             return null;
@@ -499,8 +515,8 @@ export default async (req: Request) => {
           let correctIdx = 0;
           const mNum = region.match(/\"correctAnswer\"\s*:\s*(\d+)/); if (mNum) correctIdx = Math.max(0, Math.min(3, Number(mNum[1])));
           const mLbl = region.match(/\"correct(Label|Option)?\"\s*:\s*\"([A-Da-d])\"/); if (mLbl) { const L = mLbl[2].toUpperCase().charCodeAt(0) - 65; if (!Number.isNaN(L)) correctIdx = Math.max(0, Math.min(3, L)); }
-          if (!options) options = ['Choose governing relation','Substitute given values','Compute result','None of the above'];
-          salvagedMcqs.push({ id: `sv-${Date.now()}-${i}`, question: qText, options, correctAnswer: correctIdx, hint: 'Use the next governing relation, then substitute.', explanation: 'Progress logically toward the final result.', step: i + 1 } as any);
+          if (!options) options = ['Use governing relation','Substitute known values','Compute result','Check units'];
+          salvagedMcqs.push({ id: `sv-${Date.now()}-${i}`, question: qText || `Step ${i+1}: choose next action`, options, correctAnswer: correctIdx, hint: 'Use the next governing relation, then substitute.', explanation: 'Progress logically toward the final result.', step: i + 1 } as any);
         }
       } catch {}
       dbgCounts.salvagedOnInvalid = salvagedMcqs.length;
@@ -517,14 +533,19 @@ export default async (req: Request) => {
     // If the generate cap was hit, do not return any MCQs
     if (hitGenerateCap) { ensured.mcqs = []; }
 
-    // Server-side validator
+    // Server-side validator (lenient options normalization)
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
     const isRecallQuestion = (q: string) => /what is the mass of|check the problem statement|refer to the statement|according to the text/i.test(q);
     const isMultiItemConceptual = (q: string) => /\b(two|both|select two|choose two|two short|two long|multiple)\b/i.test(q);
     if (Array.isArray(ensured.mcqs)) {
-      ensured.mcqs = ensured.mcqs.filter((m: any) => {
+      ensured.mcqs = ensured.mcqs.map((m: any) => {
+        let opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : [];
+        if (opts.length >= 4) opts = opts.slice(0, 4);
+        return { ...m, options: opts };
+      }).filter((m: any) => {
         const q = String(m?.question || '');
         const opts = Array.isArray(m?.options) ? m.options.map((o: any) => String(o || '')) : [];
+        if (!q || /^```/.test(q)) return false;
         if (isRecallQuestion(q)) return false;
         if (opts.length !== 4) return false;
         if (opts.some((o: string) => isMetaOption(o))) return false;
@@ -555,7 +576,7 @@ export default async (req: Request) => {
       try { console.warn('[fn decode] MCQs empty after filters/top-up; salvage second pass'); } catch {}
       const salvageAgain: MCQ[] = [] as any;
       try {
-        const blocks = content.split(/\n\n|\r\n\r\n/).filter(Boolean).slice(0, marks);
+        const blocks = stripCodeFences(content).split(/\n\n|\r\n\r\n/).filter(Boolean).slice(0, marks);
         for (let i = 0; i < blocks.length && salvageAgain.length < marks; i++) {
           const b = blocks[i];
           const stem = b.replace(/\s+/g, ' ').slice(0, 240) || `Step ${i+1}: choose next action`;
