@@ -126,6 +126,7 @@ export default async (req: Request) => {
 
     // Lightweight retrieval (if configured) to ground generation
     let retrievedSnippets: string[] = [];
+    let retrievalMeta: { used: boolean; count: number; docs: Array<{ name?: string; subject?: string; syllabus?: string }>; } = { used: false, count: 0, docs: [] };
     const runSearch = async () => {
       if (!searchEndpoint || !searchIndex || !searchKey) return;
       const qParts: string[] = [];
@@ -154,6 +155,9 @@ export default async (req: Request) => {
         const values = Array.isArray(data?.value) ? data.value : [];
         const pick = (doc: any) => String(doc?.merged_content || doc?.content || '').trim();
         retrievedSnippets = values.map((v: any) => pick(v)?.slice(0, 500)).filter((s: string) => s && s.length > 60).slice(0, 3);
+        retrievalMeta.used = true;
+        retrievalMeta.count = Math.min(3, values.length);
+        retrievalMeta.docs = values.slice(0, 3).map((v: any) => ({ name: v?.metadata_storage_name, subject: v?.metadata_subject, syllabus: v?.metadata_syllabus }));
       } catch {} finally { clearTimeout(t); }
     };
     await runSearch();
@@ -223,14 +227,18 @@ export default async (req: Request) => {
     const choice = data?.choices?.[0];
     let content: string = choice?.message?.content || choice?.delta?.content || '';
     let usage: any = (data as any)?.usage;
+    const finishReason = choice?.finish_reason;
     try { 
       console.log('[fn decode] choice details:', {
-        finish_reason: choice?.finish_reason,
+        finish_reason: finishReason,
         content_length: content?.length,
         usage: data?.usage,
         first_100_chars: content?.slice(0, 100)
       });
     } catch {}
+    if (finishReason === 'length') {
+      try { console.warn('[fn decode] token limit reached on generate', { max_tokens: (userMaxTokens || 450) }); } catch {}
+    }
     
     if (!content?.trim()) {
       dbg('empty content on primary OK; retry with text format');
@@ -824,7 +832,7 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
       totals: sumUsage([usage_parse, usage_generate, usage_synth, usage_pitfalls])
     };
     try { console.log('[fn decode] token usage breakdown', usageBreakdown); } catch {}
-    return respond(200, { ...ensured, usage: usageBreakdown });
+    return respond(200, { ...ensured, usage: usageBreakdown, meta: { generate_finish_reason: finishReason || null, generate_max_tokens: (userMaxTokens || 450), retrieval: retrievalMeta } });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });

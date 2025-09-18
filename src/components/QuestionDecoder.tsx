@@ -351,6 +351,15 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           const data = await res.json();
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
+          if (data?.meta?.generate_finish_reason) {
+            console.warn('[decoder] generate finish reason:', data.meta.generate_finish_reason, 'max_tokens:', data.meta.generate_max_tokens);
+            if (data.meta.generate_finish_reason === 'length') {
+              console.warn('[decoder] token limit reached');
+            }
+          }
+          if (data?.meta?.retrieval?.used) {
+            console.log('[decoder] retrieval used:', { count: data.meta.retrieval.count, docs: data.meta.retrieval.docs });
+          }
           if (Array.isArray(data.mcqs) && data.solution) {
             // Enforce MCQ count equals marks (no placeholder wording)
             let mcqsOut = Array.isArray(data.mcqs) ? data.mcqs.slice(0) : [];
