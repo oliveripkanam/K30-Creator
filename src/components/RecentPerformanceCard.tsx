@@ -232,11 +232,11 @@ const RecentListItem: React.FC<{
   decode: DecodeAttempt;
   onClick?: () => void;
 }> = ({ decode, onClick }) => {
-  const getAccuracyColor = (accuracy: number) => {
-    if (accuracy >= 90) return 'bg-emerald-600 text-white'; // dark green
-    if (accuracy >= 75) return 'bg-green-500 text-white';    // light green -> stronger for visibility
-    if (accuracy >= 50) return 'bg-yellow-400 text-white';   // yellow stronger
-    return 'bg-red-500 text-white';                          // red stronger
+  const getAccuracyStyle = (accuracy: number): React.CSSProperties => {
+    if (accuracy >= 90) return { backgroundColor: '#059669', color: '#ffffff' };
+    if (accuracy >= 75) return { backgroundColor: '#22c55e', color: '#ffffff' };
+    if (accuracy >= 50) return { backgroundColor: '#f59e0b', color: '#ffffff' };
+    return { backgroundColor: '#ef4444', color: '#ffffff' };
   };
 
   return (
@@ -255,7 +255,7 @@ const RecentListItem: React.FC<{
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <span className={`px-2 py-1 rounded-full text-xs font-medium min-w-[44px] text-center ${getAccuracyColor(decode.accuracy)}`}>
+        <span className={`px-2 py-1 rounded-full text-xs font-medium min-w-[44px] text-center`} style={getAccuracyStyle(decode.accuracy)}>
           {decode.accuracy}%
         </span>
         <ChevronRight className="w-4 h-4 text-gray-400" />
