@@ -44,11 +44,11 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
     try {
       const raw = localStorage.getItem('k30:maxTokens') || '';
       const n = parseInt(raw, 10);
-      return Number.isFinite(n) ? Math.max(200, Math.min(1200, n)) : 450;
+      return Number.isFinite(n) ? Math.max(200, Math.min(6000, n)) : 1200;
     } catch { return 450; }
   });
   const applyMaxTokens = () => {
-    const clamped = Math.max(200, Math.min(1200, Math.floor(Number(maxTokens) || 450)));
+    const clamped = Math.max(200, Math.min(6000, Math.floor(Number(maxTokens) || 1200)));
     setMaxTokens(clamped);
     try { localStorage.setItem('k30:maxTokens', String(clamped)); } catch {}
   };
@@ -481,8 +481,8 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                     id="max-tokens"
                     type="number"
                     min={200}
-                    max={1200}
-                    step={50}
+                    max={6000}
+                    step={100}
                     value={maxTokens}
                     onChange={(e) => setMaxTokens(() => {
                       const n = parseInt(e.target.value, 10);
@@ -493,7 +493,7 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                 </div>
                 <Button type="button" size="sm" onClick={applyMaxTokens}>Apply</Button>
               </div>
-              <p className="text-xs text-muted-foreground">Used to cap the AI generation length. Range 200–1200. Applied to the next decode.</p>
+              <p className="text-xs text-muted-foreground">Total token budget for generate (prompt + completion). Range 200–6000. Applied to the next decode.</p>
             </div>
 
             {/* Submit Button */}
