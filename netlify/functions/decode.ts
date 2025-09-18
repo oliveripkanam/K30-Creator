@@ -1,5 +1,6 @@
 // Types from @netlify/functions removed for portability in local linting
 
+
 type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[]; applications?: string[]; pitfalls?: string[] };
 type ImageItem = { base64: string; mimeType: string };
@@ -28,6 +29,46 @@ export default async (req: Request) => {
   if (!text && images.length === 0) return respond(400, { error: "Missing 'text' or 'images'" });
   dbg('input summary', { textLen: text.length, marks, images: images.length });
 
+  // Added: notation normalization and multi-question detection
+  const normalizeNotation = (s: string): string => {
+    try {
+      let t = String(s || '');
+      t = t
+        .replace(/[×✕✖✗]/g, 'x')
+        .replace(/[·•]/g, '·')
+        .replace(/μ/g, 'micro ')
+        .replace(/°\s*C/gi, ' deg C')
+        .replace(/°/g, ' deg ')
+        .replace(/[′’]/g, "'")
+        .replace(/[“”]/g, '"')
+        .replace(/–|—/g, '-')
+        .replace(/Ω/g, 'ohm')
+        .replace(/±/g, '+/-')
+        .replace(/\s+/g, ' ')
+        .trim();
+      t = t
+        .replace(/m\s*\/\s*s\s*\^\s*2|m\s*\/\s*s²/gi, 'm/s^2')
+        .replace(/m²/gi, 'm^2')
+        .replace(/cm²/gi, 'cm^2')
+        .replace(/m³/gi, 'm^3');
+      return t;
+    } catch { return s; }
+  };
+  const looksLikeMultipleQuestions = (s: string): boolean => {
+    try {
+      const lines = String(s || '').split(/\r?\n/).map(l => l.trim());
+      let count = 0;
+      for (const ln of lines) {
+        if (/^(?:\d{1,2}[).]|\([a-d]\)|[a-d]\)|\d+\s*[a-d]\)|\d+\.)/i.test(ln)) count++;
+      }
+      const inlineHits = (s.match(/\b(?:\(i+\)|\d+\.|[A-Da-d]\))/g) || []).length;
+      return count >= 2 || inlineHits >= 3;
+    } catch { return false; }
+  };
+  if (!images.length && looksLikeMultipleQuestions(text)) {
+    return respond(400, { error: 'Multiple questions detected in text input. Please submit one question at a time.', code: 'MULTIPLE_QUESTIONS' });
+  }
+
   // Bypass switch for routing checks
   if ((getEnv('DEBUG_BYPASS_AZURE') || '') === '1') {
     return respond(200, { mcqs: [], solution: { finalAnswer: 'bypass', unit: '', workingSteps: [], keyFormulas: [] } });
@@ -55,7 +96,7 @@ export default async (req: Request) => {
   ].filter(Boolean);
   // Keep headers compact and cap overall user text for latency/limits
   const userTextHeader = headerParts.length ? `${headerParts.join(' • ')}\n` : '';
-  const userTextRaw = (userTextHeader + (text || '')).slice(0, 1400);
+  const userTextRaw = normalizeNotation((userTextHeader + (text || '')).slice(0, 1400));
   // Minimal guardrails to keep outputs correct and structured
   const computeReq = `\n\nCompute step-by-step and choose the option that matches the computed value; verify before finalizing.`;
   const formatReq = `\n\nReturn ONLY a single JSON object with keys 'mcqs' and 'solution'. Each mcq has fields: id, question, options (4), correctAnswer (0-based), hint, explanation, step. solution has: finalAnswer, unit, workingSteps[], keyFormulas[]. No additional text.`;
@@ -155,16 +196,23 @@ export default async (req: Request) => {
         const data = await res.json().catch(() => null) as any;
         const values = Array.isArray(data?.value) ? data.value : [];
         const pick = (doc: any) => String(doc?.merged_content || doc?.content || '').trim();
-        retrievedSnippets = values.map((v: any) => pick(v)?.slice(0, 500)).filter((s: string) => s && s.length > 60).slice(0, 3);
+        const rawSnips = values.map((v: any) => pick(v)?.slice(0, 500)).filter((s: string) => s && s.length > 60);
+        const seen = new Set<string>();
+        const uniq: string[] = [];
+        for (const s of rawSnips) {
+          const key = s.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 80);
+          if (!seen.has(key)) { seen.add(key); uniq.push(s); }
+        }
+        retrievedSnippets = uniq.slice(0, 3);
         retrievalMeta.used = true;
-        retrievalMeta.count = Math.min(3, values.length);
+        retrievalMeta.count = Math.min(3, uniq.length);
         retrievalMeta.docs = values.slice(0, 3).map((v: any) => ({ name: v?.metadata_storage_name, subject: v?.metadata_subject, syllabus: v?.metadata_syllabus }));
       } catch {} finally { clearTimeout(t); }
     };
     await runSearch();
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
-    const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: {...} }.`;
+    const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: { finalAnswer, unit, workingSteps, keyFormulas } }. Ensure final_answer_text and final_choice for MCQ summary are derivable.`;
     const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 900)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
     genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 1200) });
@@ -185,16 +233,13 @@ export default async (req: Request) => {
     let promptEst = estimateMessagesTokens(genContent);
     if (targetBudget && promptEst + minCompletion > targetBudget) {
       // Trim retrieved snippets first, then original text header, to fit budget
-      const trimTo = (maxChars: number) => (s: string) => s.slice(0, Math.max(0, maxChars));
       const recompute = () => estimateMessagesTokens(genContent);
       const reduceSnippets = () => {
         for (let i = 0; i < genContent.length; i++) {
           const c = genContent[i];
           if (c?.type === 'text' && /Retrieved Context/.test(String(c.text || ''))) {
-            // Aggressively trim retrieved block
-            const header = 'Retrieved Context (use for facts, avoid copying):\n';
             const lines = String(c.text || '').split('\n').filter(Boolean);
-            const trimmed = [lines[0], ...lines.slice(1).slice(0, 2).map(trimTo(220))].join('\n');
+            const trimmed = [lines[0], ...lines.slice(1).slice(0, 2).map((s: string) => s.slice(0, 220))].join('\n');
             genContent[i] = { type: 'text', text: trimmed };
             break;
           }
@@ -765,24 +810,25 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
     // Run synthesis and pitfalls in parallel with timeouts
     await Promise.allSettled([ runSynthesis(), runPitfalls() ]);
 
-    // STEP 3.1: Let the model decide step count; if too few, top-up from MCQs without filler
-    try {
-      const minSteps = Math.min(6, Math.max(3, Math.ceil((ensured.mcqs || []).length / 2)));
-      const existing = Array.isArray(ensured.solution.workingSteps) ? ensured.solution.workingSteps : [];
-      if (existing.length < minSteps) {
-        const compress = (s: string) => String(s || '').replace(/\s+/g, ' ').trim();
-        const extra: string[] = [];
-        for (const m of (ensured.mcqs || [])) {
-          const text = `${m?.explanation || ''} ${m?.question || ''}`;
-          const f = text.match(/\b[A-Za-z][A-Za-z0-9]*\s*=\s*[-+*/A-Za-z0-9()^··\s]+/);
-          if (f) { extra.push(`Use ${compress(f[0]).slice(0, 60)}.`); continue; }
-          if (/\d/.test(text)) { extra.push('Substitute known values with units and evaluate.'); continue; }
-          if (/vacuum/i.test(text)) { extra.push('Recognize uniform acceleration in a vacuum.'); continue; }
+    // Added: ensure final answer exists via compact finalize pass
+    if (!String(ensured.solution.finalAnswer || '').trim()) {
+      try {
+        const finalizeInstr = `Return ONLY JSON: { finalAnswer: string, unit: string }\nRules:\n- Extract a single final numerical or concise textual answer implied by the summary/MCQs.\n- Include SI unit when applicable (empty string otherwise).`;
+        const controller = new AbortController();
+        const t = setTimeout(() => { try { controller.abort(); } catch {} }, 2500);
+        const finRes = await fetch(url, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+          body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.0, messages: [ { role: 'user', content: [ { type: 'text', text: `Context:\n${JSON.stringify({ summary: parsedSummary, mcqs: ensured.mcqs }).slice(0, 3500)}` }, { type: 'text', text: finalizeInstr } ] } ], max_tokens: 120 }),
+          signal: controller.signal as any
+        });
+        if (finRes.ok) {
+          const fd = await finRes.json();
+          const c = fd?.choices?.[0]?.message?.content || '';
+          try { const j = JSON.parse(c); ensured.solution.finalAnswer = String(j.finalAnswer || '').slice(0, 120); ensured.solution.unit = String(j.unit || '').slice(0, 30); } catch {}
         }
-        const merged = Array.from(new Set([ ...existing, ...extra ])).slice(0, 6);
-        ensured.solution.workingSteps = merged;
-      }
-    } catch {}
+        try { clearTimeout(t); } catch {}
+      } catch {}
+    }
 
     // Always produce at least 2 key points and avoid duplicating working steps
     try {
@@ -852,9 +898,11 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
     }
     ensured.mcqs = normalized;
 
-    // Enforce exactly 'marks' MCQs (server-side)
-    ensured.mcqs = (ensured.mcqs || []);
-    ensured.mcqs = ensured.mcqs.slice(0, marks);
+    // Enforce exactly 'marks' MCQs (server-side) and canonical ordering
+    ensured.mcqs = (ensured.mcqs || [])
+      .sort((a: any, b: any) => (Number(a.step) || 0) - (Number(b.step) || 0))
+      .slice(0, marks)
+      .map((m: any, idx: number) => ({ ...m, step: idx + 1 }));
 
     // Aggregate usage across stages
     const sumUsage = (arr: any[]) => {

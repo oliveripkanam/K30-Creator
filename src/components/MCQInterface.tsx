@@ -221,8 +221,7 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
             <CardDescription className="text-blue-700">
               {originalQuestion.type === 'text' 
                 ? 'Refer to this question while working through each step'
-                : `AI-extracted from ${originalQuestion.type === 'photo' ? 'image' : 'PDF'} - refer to this while solving`
-              }
+                : `AI-extracted from ${originalQuestion.type === 'photo' ? 'image' : 'PDF'} - refer to this while solving`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -267,14 +266,18 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
             <CardDescription>
               {currentMCQ.calculationStep 
                 ? "This step involves calculations that will help you reach the final answer."
-                : "This question helps you work through the solution step by step. Choose the best answer to proceed."
-              }
+                : "This question helps you work through the solution step by step. Choose the best answer to proceed."}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Question */}
             <div className="bg-blue-50 p-4 rounded-lg">
               <h3 className="font-medium text-blue-900 mb-2">{currentMCQ.question}</h3>
+              {isAnswered && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Badge className="bg-green-100 text-green-800" variant="secondary">Correct choice: {String.fromCharCode(65 + currentMCQ.correctAnswer)}</Badge>
+                </div>
+              )}
             </div>
 
             {/* Options */}
@@ -385,8 +388,7 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
               <CardDescription className={isCorrect ? 'text-green-600' : 'text-red-600'}>
                 {isCorrect 
                   ? `Great job! The correct answer is ${String.fromCharCode(65 + currentMCQ.correctAnswer)}.`
-                  : `The correct answer is ${String.fromCharCode(65 + currentMCQ.correctAnswer)}.`
-                }
+                  : `The correct answer is ${String.fromCharCode(65 + currentMCQ.correctAnswer)}.`}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -430,8 +432,7 @@ export function MCQInterface({ mcqs, currentIndex, originalQuestion, onNext, onC
           <div className="text-center text-sm text-muted-foreground">
             {isLastQuestion 
               ? "Click 'Complete' to finish and return to your dashboard."
-              : "Click 'Next Step' to continue with the solution process."
-            }
+              : "Click 'Next Step' to continue with the solution process."}
           </div>
         )}
       </div>

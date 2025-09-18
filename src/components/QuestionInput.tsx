@@ -112,6 +112,20 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
     reader.readAsDataURL(file);
   });
 
+  // Added: lightweight multi-question detector for text input
+  const looksLikeMultipleQuestions = (s: string): boolean => {
+    try {
+      const lines = String(s || '').split(/\r?\n/).map(l => l.trim());
+      let count = 0;
+      for (const ln of lines) {
+        if (/^(?:\d{1,2}[).]|\([a-d]\)|[a-d]\)|\d+\s*[a-d]\)|\d+\.)/i.test(ln)) count++;
+      }
+      const inlineHits = (s.match(/\b(?:\(i+\)|\d+\.|[A-Da-d]\))/g) || []).length;
+      return count >= 2 || inlineHits >= 3;
+    } catch { return false; }
+  };
+  const multiText = activeTab === 'text' ? looksLikeMultipleQuestions(textContent) : false;
+
   const handleSubmit = async () => {
     let content = '';
     let type: 'photo' | 'file' | 'text' = 'text';
@@ -140,6 +154,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
         break;
       case 'text':
         if (!textContent.trim()) return;
+        if (looksLikeMultipleQuestions(textContent)) return; // block submit; UI shows warning below
         content = textContent;
         type = 'text';
         break;
@@ -154,7 +169,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       if (type === 'file') guess = 6;
       if (type === 'photo') guess = 5;
       if (len > 600) guess = 7; else if (len > 300) guess = 6; else if (len > 140) guess = 5; else if (len > 60) guess = 4; else guess = 3;
-      if (/(\(i\)|\(ii\)|\(iii\)|\ba\)|\bb\)|\bc\))/i.test(text)) guess += 1;
+      if(/(\(i\)|\(ii\)|\(iii\)|\ba\)|\bb\)|\bc\))/i.test(text)) guess += 1;
       const digits = (text.match(/\d/g) || []).length; if (digits > 10) guess += 1;
       if (/math|phys/i.test(subject)) guess += 1;
       if (/biology|chem/i.test(subject) && guess > 6) guess -= 1;
@@ -184,7 +199,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       case 'file':
         return uploadFile && marks > 0;
       case 'text':
-        return textContent.trim() && marks > 0;
+        return textContent.trim() && marks > 0 && !multiText;
       default:
         return false;
     }
@@ -303,6 +318,9 @@ Example (Mechanics): A ball is thrown horizontally from the top of a building 20
                     onChange={(e) => setTextContent(e.target.value)}
                     className="min-h-32 mt-2"
                   />
+                  {multiText && (
+                    <p className="text-xs text-red-600 mt-2">It looks like there are multiple questions in this text. Please submit one question at a time or crop/split it.</p>
+                  )}
                 </div>
               </TabsContent>
 
