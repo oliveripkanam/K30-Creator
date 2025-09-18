@@ -351,6 +351,15 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           const data = await res.json();
           console.log('[decoder] response ok; keys', Object.keys(data || {}));
           if (data?.usage) console.log('[decoder] token usage:', data.usage);
+          try {
+            const genUse = (data?.usage?.stages?.generate as any) || null;
+            const maxTok = Number(data?.meta?.generate_max_tokens || 0);
+            const used = Number(genUse?.completion_tokens || 0);
+            if (maxTok > 0) {
+              const pct = Math.min(100, Math.round((used / maxTok) * 100));
+              console.log('[decoder] generate completion used:', `${pct}% (${used}/${maxTok})`);
+            }
+          } catch {}
           if (data?.meta?.generate_finish_reason) {
             console.warn('[decoder] generate finish reason:', data.meta.generate_finish_reason, 'max_tokens:', data.meta.generate_max_tokens);
             if (data.meta.generate_finish_reason === 'length') {
