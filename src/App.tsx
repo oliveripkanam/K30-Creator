@@ -365,20 +365,8 @@ export default function App() {
     (async () => {
       try {
         const originalText = String((currentQuestion as any)?.extractedText || (currentQuestion as any)?.content || '').slice(0, 1200);
-        const res = await fetch('/api/ai-refine', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            subject: (currentQuestion as any)?.subject,
-            syllabus: (currentQuestion as any)?.syllabus,
-            level: (currentQuestion as any)?.level,
-            originalText,
-            mcqs: generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, correctAnswer: m.correctAnswer, explanation: m.explanation, step: m.step, calculationStep: m.calculationStep })),
-            solution: { workingSteps: solution.workingSteps, keyFormulas: solution.keyFormulas }
-          })
-        });
-        if (!res.ok) {
-          // Netlify function path fallback
-          const alt = await fetch('/.netlify/functions/refine', {
+        // Prefer Netlify function path first for production
+        const primary = await fetch('/.netlify/functions/refine', {
             method: 'POST', headers: { 'content-type': 'application/json' },
             body: JSON.stringify({
               subject: (currentQuestion as any)?.subject,
@@ -389,14 +377,20 @@ export default function App() {
               solution: { workingSteps: solution.workingSteps, keyFormulas: solution.keyFormulas }
             })
           });
-          if (!alt.ok) return;
-          // Use alt
-          const data = await alt.json();
+        const resOk = primary.ok ? primary : await fetch('/api/ai-refine', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            subject: (currentQuestion as any)?.subject,
+            syllabus: (currentQuestion as any)?.syllabus,
+            level: (currentQuestion as any)?.level,
+            originalText,
+            mcqs: generatedMCQs.map(m => ({ id: m.id, question: m.question, options: m.options, correctAnswer: m.correctAnswer, explanation: m.explanation, step: m.step, calculationStep: m.calculationStep })),
+            solution: { workingSteps: solution.workingSteps, keyFormulas: solution.keyFormulas }
+          })
+        });
+        if (!resOk.ok) return;
+        const data = await resOk.json();
           setSolutionSummary(prev => prev ? { ...prev, workingSteps: Array.isArray(data.workingSteps) && data.workingSteps.length ? data.workingSteps : prev.workingSteps, keyFormulas: prev.keyFormulas, ...(Array.isArray(data.keyPoints) ? { keyPoints: data.keyPoints } as any : {}), ...(Array.isArray(data.pitfalls) ? { pitfalls: data.pitfalls } as any : {}) } : prev as any);
-          return;
-        }
-        const data = await res.json();
-        setSolutionSummary(prev => prev ? { ...prev, workingSteps: Array.isArray(data.workingSteps) && data.workingSteps.length ? data.workingSteps : prev.workingSteps, keyFormulas: prev.keyFormulas, ...(Array.isArray(data.keyPoints) ? { keyPoints: data.keyPoints } as any : {}), ...(Array.isArray(data.pitfalls) ? { pitfalls: data.pitfalls } as any : {}) } : prev as any);
       } catch {}
     })();
 
@@ -513,13 +507,13 @@ export default function App() {
         try { localStorage.setItem(lastKeyStorage, todayHK); } catch {}
       }
       
-      setUser({
-        ...user,
-        questionsDecoded: user.questionsDecoded + 1,
+      setUser((prev) => prev ? {
+        ...prev,
+        questionsDecoded: prev.questionsDecoded + 1,
         currentStreak: nextStreak,
-        totalMarks: user.totalMarks + currentQuestion.marks,
-        tokens: user.tokens + tokensEarned
-      });
+        totalMarks: prev.totalMarks + currentQuestion.marks,
+        tokens: prev.tokens + tokensEarned
+      } : prev);
 
     try {
       // Guard getSession with timeout for visibility
