@@ -49,18 +49,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState('');
   const [isComplete, setIsComplete] = useState(false);
-  const [maxTokens, setMaxTokens] = useState<number>(() => {
-    try {
-      const raw = localStorage.getItem('k30:maxTokens') || '';
-      const n = parseInt(raw, 10);
-      return Number.isFinite(n) ? Math.max(200, Math.min(1200, n)) : 450;
-    } catch { return 450; }
-  });
-  const applyMaxTokens = () => {
-    const clamped = Math.max(200, Math.min(1200, Math.floor(Number(maxTokens) || 450)));
-    setMaxTokens(clamped);
-    try { localStorage.setItem('k30:maxTokens', String(clamped)); } catch {}
-  };
   // Respect a client hint where marks may have been auto-decided in the input stage.
   // We do not change existing decode logic; we only use question.marks as provided.
 
@@ -311,6 +299,14 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             if (rawText) textForDecode = rawText;
           }
         }
+        const maxTok = (() => {
+          try {
+            const raw = localStorage.getItem('k30:maxTokens') || '';
+            const n = parseInt(raw, 10);
+            if (!Number.isFinite(n)) return 450;
+            return Math.max(200, Math.min(1200, Math.floor(n)));
+          } catch { return 450; }
+        })();
         const payload: any = {
           text: textForDecode,
           images: images.length ? images : undefined,
@@ -318,7 +314,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           subject: question.subject,
           syllabus: question.syllabus,
           level: question.level,
-          maxTokens: Math.max(200, Math.min(1200, Number.isFinite(maxTokens) ? maxTokens : 450)),
+          maxTokens: maxTok,
         };
         // Prefer functions endpoints with short client timeouts to avoid hanging at the edge
         const fetchWithTimeout = async (url: string, body: any, ms: number) => {
@@ -732,23 +728,6 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
             <CardDescription>
               Breaking down your question into step-by-step multiple choice questions
             </CardDescription>
-            <div className="mt-3 flex items-center justify-center gap-2">
-              <label htmlFor="k30-max-tokens" className="text-xs text-muted-foreground">Max tokens</label>
-              <input
-                id="k30-max-tokens"
-                type="number"
-                min={200}
-                max={1200}
-                step={50}
-                value={maxTokens}
-                onChange={(e) => setMaxTokens(() => {
-                  const n = parseInt(e.target.value, 10);
-                  return Number.isFinite(n) ? n : 450;
-                })}
-                className="w-24 px-2 py-1 border rounded text-sm"
-              />
-              <Button size="sm" onClick={applyMaxTokens}>Apply</Button>
-            </div>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="space-y-3">
