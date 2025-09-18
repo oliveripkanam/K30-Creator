@@ -19,20 +19,22 @@ export function QuestionDetail({ questionId, onBack }: DetailProps) {
     const fetchAll = async () => {
       setLoading(true); setError(null);
       try {
-        const { data: q, error: qErr } = await supabase.from('questions').select('*').eq('id', questionId).single();
-        if (qErr) throw qErr;
-        const { data: s, error: sErr } = await supabase.from('mcq_steps').select('*').eq('question_id', questionId).order('step_index', { ascending: true });
-        if (sErr) throw sErr;
+        // Parallel fetch with hard timeouts
+        const qPromise = supabase.from('questions').select('id, decoded_at, original_input, extracted_text, marks, solution_summary').eq('id', questionId).single();
+        const sPromise = supabase.from('mcq_steps').select('question_id, step_index, prompt, choices, correct_label, user_answer, is_correct').eq('question_id', questionId).order('step_index', { ascending: true });
+        const to = (p: Promise<any>, ms: number) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), ms))]);
+        const [qRes, sRes] = await Promise.allSettled([to(qPromise as any, 6000), to(sPromise as any, 6000)]);
         if (aborted) return;
-        setQuestion(q);
-        setSteps(s || []);
+        if (qRes.status === 'fulfilled') {
+          const { data, error } = qRes.value as any; if (error) throw error; setQuestion(data);
+        }
+        if (sRes.status === 'fulfilled') {
+          const { data, error } = sRes.value as any; if (error) throw error; setSteps(data || []);
+        }
       } catch (e: any) {
         if (aborted) return;
         setError(e.message || 'Failed to load question');
-      } finally {
-        if (aborted) return;
-        setLoading(false);
-      }
+      } finally { if (!aborted) setLoading(false); }
     };
     fetchAll();
     return () => { aborted = true };
@@ -53,7 +55,7 @@ export function QuestionDetail({ questionId, onBack }: DetailProps) {
             </Button>
             <h1 className="text-xl">Question Details</h1>
           </div>
-          <Badge variant="secondary">{question?.marks ?? ''} marks</Badge>
+          {/* hide marks to avoid mismatch with MCQ count */}
         </div>
       </div>
       {loading && (

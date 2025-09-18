@@ -47,7 +47,7 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
         // Try Supabase client first with a timeout, then REST fallback using access token
         const clientSelect = supabase
           .from('questions')
-          .select('*')
+          .select('id, decoded_at, source_type, original_input, extracted_text, marks, tokens_earned, time_spent_minutes, time_spent_seconds, solution_summary')
           .eq('user_id', userId)
           .order('decoded_at', { ascending: false });
         const clientTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('client select timeout after 6s')), 6000));
@@ -75,7 +75,7 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
                 if (accessToken) break;
               }
             }
-            const url = `${envUrl}/rest/v1/questions?select=*&user_id=eq.${encodeURIComponent(userId)}&order=decoded_at.desc`;
+            const url = `${envUrl}/rest/v1/questions?select=id,decoded_at,source_type,original_input,extracted_text,marks,tokens_earned,time_spent_minutes,time_spent_seconds,solution_summary&user_id=eq.${encodeURIComponent(userId)}&order=decoded_at.desc&limit=40`;
             const resp = await fetch(url, {
               headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -431,22 +431,28 @@ export function QuestionHistory({ userId, onBack, onOpenDetail }: QuestionHistor
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <p className="text-sm font-medium mb-2">Solution:</p>
-                        <p className="text-sm text-green-700 bg-green-50 p-2 rounded">
-                          <span className="font-medium">Answer:</span> {question.solutionSummary.finalAnswer}
-                          {question.solutionSummary.unit && (
-                            <span className="text-muted-foreground"> {question.solutionSummary.unit}</span>
-                          )}
-                        </p>
+                        <p className="text-sm font-medium mb-2">Correct Steps</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(() => {
+                            // Read cached last score if available for a quick approximation
+                            const last = (window as any).__k30_lastScore as { correct: number[]; wrong: number[] } | undefined;
+                            const correctSteps = Array.isArray(last?.correct) ? last!.correct : [];
+                            return correctSteps.length ? correctSteps.map((s, i) => (
+                              <Badge key={i} variant="secondary" className="text-xs">Step {s}</Badge>
+                            )) : <span className="text-xs text-muted-foreground">Shown after opening details</span>;
+                          })()}
+                        </div>
                       </div>
                       <div>
-                        <p className="text-sm font-medium mb-2">Key Points:</p>
-                        <div className="flex flex-wrap gap-1 max-w-full overflow-hidden">
-                          {(question.solutionSummary.workingSteps || []).slice(0, 2).map((p, index) => (
-                            <Badge key={index} variant="outline" className="text-xs whitespace-normal break-words">
-                              {p.slice(0, 140)}{p.length > 140 ? '…' : ''}
-                            </Badge>
-                          ))}
+                        <p className="text-sm font-medium mb-2">Incorrect Steps</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(() => {
+                            const last = (window as any).__k30_lastScore as { correct: number[]; wrong: number[] } | undefined;
+                            const wrongSteps = Array.isArray(last?.wrong) ? last!.wrong : [];
+                            return wrongSteps.length ? wrongSteps.map((s, i) => (
+                              <Badge key={i} variant="destructive" className="text-xs">Step {s}</Badge>
+                            )) : <span className="text-xs text-muted-foreground">Shown after opening details</span>;
+                          })()}
                         </div>
                       </div>
                     </div>
