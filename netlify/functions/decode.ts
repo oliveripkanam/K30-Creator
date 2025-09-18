@@ -458,46 +458,58 @@ export default async (req: Request) => {
       }
     }
     try { console.log('[fn decode] parsed keys', Object.keys((parsed as any) || {})); } catch {}
-    // Helper: normalize an options structure into a clean string[4]
-    const normalizeOptions = (raw: any): string[] | null => {
+
+    // If model output is invalid, attempt a light salvage ONLY when we did not hit the cap
+    if ((!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) && !hitGenerateCap) {
+      try { console.warn('[fn decode] invalid model output; attempting salvage'); } catch {}
+      const salvagedMcqs: MCQ[] = [] as any;
       try {
-        if (Array.isArray(raw)) {
-          // Examples: ["opt A", "opt B", ...] or [{ text, label }, ...]
-          const arr = raw.map((v: any) => {
-            if (typeof v === 'string') return String(v).trim();
-            if (v && typeof v === 'object') {
-              const t = v.text ?? v.value ?? v.option ?? v.label ?? '';
-              return String(t).trim();
-            }
-            return '';
-          });
-          if (arr.length === 4 && arr.every((s: string) => typeof s === 'string' && s.trim().length > 1)) {
-            // Strip leading "A) ", "B. ", etc.
-            return arr.map((s: string) => s.replace(/^\s*[A-Da-d][).:\-]\s*/, '').trim());
+        // Extract questions heuristically
+        const qMatches = Array.from(content.matchAll(/\"question\"\s*:\s*\"([\s\S]*?)\"/g));
+        for (let i = 0; i < Math.min(qMatches.length, marks); i++) {
+          const qText = (qMatches[i]?.[1] || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+          if (!qText) continue;
+          const start = qMatches[i].index ?? 0;
+          const end = (qMatches[i+1]?.index ?? content.length);
+          const region = content.slice(start, end);
+          const normalizeOptions = (raw: any): string[] | null => {
+            try {
+              if (Array.isArray(raw)) {
+                const arr = raw.map((v: any) => typeof v === 'string' ? v.trim() : String(v?.text ?? v?.value ?? v?.label ?? '').trim());
+                if (arr.length === 4 && arr.every((s: string) => s.length > 1)) return arr.map((s: string) => s.replace(/^\s*[A-Da-d][).:\-]\s*/, '').trim());
+              }
+            } catch {}
+            return null;
+          };
+          // Try JSON-ish options
+          let options: string[] | null = null;
+          const optJson = region.match(/\"options\"\s*:\s*\[(.*?)\]/s);
+          if (optJson && optJson[1]) { try { options = normalizeOptions(JSON.parse(`[${optJson[1]}]`)); } catch {} }
+          if (!options) {
+            const lettered: string[] = [];
+            const rgx = /\n?\s*([A-Da-d])[).:\-]\s*([^\n\r]+)[\n\r]?/g;
+            let m; while ((m = rgx.exec(region)) && lettered.length < 4) { lettered.push(String(m[2] || '').trim()); }
+            if (lettered.length === 4) options = lettered;
           }
-        }
-        if (raw && typeof raw === 'object') {
-          // Example: { A: '...', B: '...', C: '...', D: '...' }
-          const keys = ['A','B','C','D'];
-          const arr = keys.map(k => String(raw[k] ?? '').trim());
-          if (arr.every((s: string) => s.length > 1)) return arr;
+          let correctIdx = 0;
+          const mNum = region.match(/\"correctAnswer\"\s*:\s*(\d+)/); if (mNum) correctIdx = Math.max(0, Math.min(3, Number(mNum[1])));
+          const mLbl = region.match(/\"correct(Label|Option)?\"\s*:\s*\"([A-Da-d])\"/); if (mLbl) { const L = mLbl[2].toUpperCase().charCodeAt(0) - 65; if (!Number.isNaN(L)) correctIdx = Math.max(0, Math.min(3, L)); }
+          if (!options) options = ['Choose governing relation','Substitute given values','Compute result','None of the above'];
+          salvagedMcqs.push({ id: `sv-${Date.now()}-${i}`, question: qText, options, correctAnswer: correctIdx, hint: 'Use the next governing relation, then substitute.', explanation: 'Progress logically toward the final result.', step: i + 1 } as any);
         }
       } catch {}
-      return null;
-    };
-    const letterOnly = (arr: any[]) => Array.isArray(arr) && arr.length === 4 && arr.every(v => typeof v === 'string' && /^[A-Da-d]$/.test(v.trim().replace(/[).]/g,'')));
+      const safeSolution: SolutionSummary = { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] };
+      parsed = { mcqs: salvagedMcqs, solution: safeSolution } as any;
+    }
 
-    // Build ensured struct (or salvage)
+    // Build ensured struct
     if (!parsed || !Array.isArray((parsed as any).mcqs) || !(parsed as any).solution) { 
-      try { console.warn('[fn decode] invalid model output; attempting salvage', { preview: content.slice(0, 200) }); } catch {};
       parsed = { mcqs: [], solution: { finalAnswer: '', unit: '', workingSteps: [], keyFormulas: [] } as any } as any;
     }
     const ensured = (parsed as any) as { mcqs: any[]; solution: any };
 
     // If the generate cap was hit, do not return any MCQs
-    if (hitGenerateCap) {
-      ensured.mcqs = [];
-    }
+    if (hitGenerateCap) { ensured.mcqs = []; }
 
     // Server-side validator...
     const isMetaOption = (s: string) => /state the|substitute|compute the|none of the above/i.test(s);
