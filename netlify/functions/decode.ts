@@ -856,9 +856,13 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
 
     // Normalize MCQs: fix option shapes, clamp correctAnswer, and replace invalid letter-only options
     const normalized: MCQ[] = [] as any;
+    const mcqReviews: any[] = [];
+    const simplify = (s: string) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    const normalizeForMatch = (s: string) => simplify(s).replace(/[^a-z0-9%\.\-\^/]/g, '');
     for (let i = 0; i < (ensured.mcqs || []).length; i++) {
       const m: any = ensured.mcqs[i] || {};
-      let opts = normalizeOptions(m.options) ?? normalizeOptions(m.choices) ?? null;
+      const origOpts = normalizeOptions(m.options) ?? normalizeOptions(m.choices) ?? null;
+      let opts = Array.isArray(origOpts) ? [...origOpts] : (normalizeOptions(m.options) ?? normalizeOptions(m.choices) ?? null);
       if (!opts || letterOnly(opts)) {
         opts = [
           'State the relevant formula/law',
@@ -867,6 +871,7 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
           'None of the above'
         ];
       }
+      // Determine original correct index/label, then re-map after any option mutations
       let ca: any = m.correctAnswer;
       if (typeof ca !== 'number') {
         const label = String(m.correct_label || m.correct || '').trim();
@@ -875,6 +880,35 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
       if (typeof ca === 'string' && /^\d+$/.test(ca)) ca = Number(ca);
       if (typeof ca !== 'number' || Number.isNaN(ca)) ca = 0;
       ca = Math.max(0, Math.min(3, ca));
+
+      // Reindex by text if possible (prevents key drift if options were normalized/replaced)
+      let reindexed = ca;
+      let origCorrectText = '';
+      if (Array.isArray(origOpts) && origOpts[ca]) {
+        origCorrectText = String(origOpts[ca] || '');
+        const target = normalizeForMatch(origCorrectText);
+        if (target) {
+          for (let k = 0; k < opts.length; k++) {
+            if (normalizeForMatch(opts[k]) === target) { reindexed = k; break; }
+          }
+        }
+      }
+
+      // Sanity checks and review log
+      const dupes = (() => { const set = new Set<string>(); let d = false; for (const o of opts) { const key = normalizeForMatch(o); if (set.has(key)) { d = true; break; } set.add(key); } return d; })();
+      const inRange = reindexed >= 0 && reindexed < opts.length;
+      mcqReviews.push({
+        step: Number(m.step) || (i + 1),
+        inRange,
+        duplicateOptions: dupes,
+        originalIndex: ca,
+        reindexed,
+        originalCorrectText: origCorrectText.slice(0, 160),
+        chosenCorrectText: String(opts[reindexed] || '').slice(0, 160),
+        indexMap: { A: 0, B: 1, C: 2, D: 3 }
+      });
+
+      ca = inRange ? reindexed : 0;
       const rawHint = String(m.hint || '').trim();
       const improvedHint = rawHint && rawHint.length > 0 ? rawHint : (() => {
         const q = String(m.question || '').toLowerCase();
@@ -904,6 +938,30 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
       .slice(0, marks)
       .map((m: any, idx: number) => ({ ...m, step: idx + 1 }));
 
+    // Optional: judge pass to independently answer each MCQ and log agreement with key
+    const enableJudge = String(getEnv('ENABLE_MCQ_JUDGE') || '').trim() === '1';
+    const judgeDeployment = (getEnv('JUDGE_OPENAI_DEPLOYMENT') || '').trim();
+    const judgeUrl = judgeDeployment ? buildUrl(rawEndpoint, judgeDeployment, apiVersion) : url;
+    if (enableJudge) {
+      try {
+        for (let i = 0; i < ensured.mcqs.length; i++) {
+          const m = ensured.mcqs[i];
+          const prompt = [{ type: 'text', text: `Answer this MCQ. Return ONLY JSON: { answer: 'A'|'B'|'C'|'D', reason: string, confidence: number(0..1) }\nQuestion: ${m.question}\nOptions:\nA) ${m.options[0]}\nB) ${m.options[1]}\nC) ${m.options[2]}\nD) ${m.options[3]}` }];
+          const jr = await fetch(judgeUrl, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'api-key': apiKey },
+            body: JSON.stringify({ response_format: { type: 'json_object' }, temperature: 0.1, messages: [ { role: 'user', content: prompt } ], max_tokens: 120 })
+          }).then(r => r.ok ? r.json() : null).catch(() => null);
+          const jc = jr?.choices?.[0]?.message?.content || '';
+          let ans = null as null | string, reason = '', conf = 0;
+          try { const j = JSON.parse(jc); ans = String(j.answer || '').toUpperCase(); reason = String(j.reason || ''); conf = Number(j.confidence || 0); } catch {}
+          const judgeIdx = /^[A-D]$/.test(ans || '') ? (ans!.charCodeAt(0) - 65) : -1;
+          const match = judgeIdx === m.correctAnswer;
+          if (mcqReviews[i]) mcqReviews[i].judge = { letter: ans, index: judgeIdx, match, confidence: conf, reason: reason.slice(0, 200) };
+          try { console.log('[fn decode] judge', { step: m.step, ans, match, conf }); } catch {}
+        }
+      } catch {}
+    }
+
     // Aggregate usage across stages
     const sumUsage = (arr: any[]) => {
       const tot = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 } as any;
@@ -925,7 +983,7 @@ ${JSON.stringify({ summary: parsedSummary, formulas: ensured.solution.keyFormula
       totals: sumUsage([usage_parse, usage_generate, usage_synth, usage_pitfalls])
     };
     try { console.log('[fn decode] token usage breakdown', usageBreakdown); } catch {}
-    return respond(200, { ...ensured, usage: usageBreakdown, meta: { generate_finish_reason: finishReason || null, generate_max_tokens: computedMaxCompletion, generate_prompt_estimate: promptEst, generate_total_budget: (targetBudget || null), retrieval: retrievalMeta } });
+    return respond(200, { ...ensured, usage: usageBreakdown, meta: { generate_finish_reason: finishReason || null, generate_max_tokens: computedMaxCompletion, generate_prompt_estimate: promptEst, generate_total_budget: (targetBudget || null), retrieval: retrievalMeta, mcq_review: mcqReviews } });
   } catch (err: any) {
     try { console.error('[fn decode] exception', err); } catch {}
     return respond(500, { error: 'Server error', details: String(err?.message || err) });
