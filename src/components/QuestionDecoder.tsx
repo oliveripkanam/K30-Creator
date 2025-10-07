@@ -15,6 +15,7 @@ interface Question {
   subject?: string;
   syllabus?: string;
   level?: string;
+  specCode?: string;
 }
 
 interface MCQ {
@@ -25,6 +26,7 @@ interface MCQ {
   hint: string;
   explanation: string;
   step: number;
+  ao?: string; // Assessment objective: AO1, AO2, AO3
   calculationStep?: {
     formula?: string;
     substitution?: string;
@@ -314,6 +316,7 @@ export function QuestionDecoder({ question, onDecoded, onBack }: QuestionDecoder
           subject: question.subject,
           syllabus: question.syllabus,
           level: question.level,
+          specCode: question.specCode,
           maxTokens: maxTok,
         };
         // Prefer functions endpoints with short client timeouts to avoid hanging at the edge

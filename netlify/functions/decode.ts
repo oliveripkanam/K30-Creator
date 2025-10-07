@@ -1,10 +1,11 @@
 // Types from @netlify/functions removed for portability in local linting
 
+import { resolveBoardProfile, buildAODistribution, formatCommandWords, formatConventions, type BoardProfile } from '../constants/boardProfiles';
 
-type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; calculationStep?: { formula?: string; substitution?: string; result?: string } };
+type MCQ = { id: string; question: string; options: string[]; correctAnswer: number; hint: string; explanation: string; step: number; ao?: string; calculationStep?: { formula?: string; substitution?: string; result?: string } };
 type SolutionSummary = { finalAnswer: string; unit: string; workingSteps: string[]; keyFormulas: string[]; keyPoints?: string[]; applications?: string[]; pitfalls?: string[] };
 type ImageItem = { base64: string; mimeType: string };
-type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string; maxTokens?: number };
+type DecodeRequest = { text?: string; images?: ImageItem[]; marks?: number; subject?: string; syllabus?: string; level?: string; specCode?: string; maxTokens?: number };
 type DecodeResponse = { mcqs: MCQ[]; solution: SolutionSummary };
 
 const respond = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -24,6 +25,10 @@ export default async (req: Request) => {
   const subject = (payload.subject || '').toString().trim();
   const syllabus = (payload.syllabus || '').toString().trim();
   const level = (payload.level || '').toString().trim();
+  const specCode = (payload.specCode || '').toString().trim();
+  // Resolve board profile for exam-aware generation
+  const boardProfile: BoardProfile = resolveBoardProfile(syllabus, level);
+  dbg('board profile resolved', { board: boardProfile.board, level: boardProfile.level });
   // Interpret client value as a TOTAL BUDGET for the generate stage (prompt + completion)
   const userTotalBudget = (() => { const n = Number((payload as any)?.maxTokens); return Number.isFinite(n) ? Math.max(200, Math.min(1000000, Math.floor(n))) : 0; })();
   if (!text && images.length === 0) return respond(400, { error: "Missing 'text' or 'images'" });
@@ -212,7 +217,28 @@ export default async (req: Request) => {
     await runSearch();
 
     // STEP 2: Generate exactly 'marks' MCQs using summary (and optionally vision) with strict constraints
-    const genInstruction = `\n\nGenerate EXACTLY ${marks} step MCQs from ProblemSummary. If subjectHint='quantitative' (or plan is computational): use numeric/formula tasks. If 'conceptual': use concise factual tasks tied to targets; do not invent constants. Rules:\n- mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step}.\n- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.\n- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence.\n- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.\n- Do not ask to recall verbatim givens.\nReturn ONLY JSON { mcqs: [...], solution: { finalAnswer, unit, workingSteps, keyFormulas } }. Ensure final_answer_text and final_choice for MCQ summary are derivable.`;
+    // Build board-aware instructions
+    const aoDistrib = buildAODistribution(marks, boardProfile);
+    const commandWordsText = formatCommandWords(boardProfile);
+    const conventionsText = formatConventions(boardProfile);
+    const boardContext = `EXAM BOARD CONTEXT
+Board: ${boardProfile.board}${boardProfile.level ? ` (${boardProfile.level})` : ''}${specCode ? `, Spec: ${specCode}` : ''}
+${commandWordsText}
+Conventions: ${conventionsText}
+AO Distribution: ${aoDistrib}
+
+MCQ GENERATION RULES
+Generate EXACTLY ${marks} step MCQs from ProblemSummary. Style must match ${boardProfile.board} command words and distractor patterns.
+- Each mcq: {id, question, options(4), correctAnswer(0-based), hint, explanation, step, ao}.
+- Assign ao field: 'AO1', 'AO2', or 'AO3' per AO distribution above.
+- Question stems should use board-typical command words (see above).
+- Distractors should reflect ${boardProfile.conventions.distractorStyle || 'common errors'}.
+- Ban meta-options: 'state the formula', 'substitute values', 'compute result', 'none of the above'.
+- Physics quantitative: name the governing relation (e.g., v=u+at, s=ut+1/2at^2, F=ma) and give a one-line substitution that leads to the correct option; keep explanation to one sentence. Use g=${boardProfile.conventions.gValue || '9.81'} m/s².
+- Conceptual: ONE atomic fact per MCQ (never ask for two/both/multiple). Options are short factual statements; explanation cites the specific syllabus fact. Hints must reference the stem concept (e.g., the defined term) and any focus like short-term vs long-term.
+- Do not ask to recall verbatim givens.
+- Ensure numerical answers use ${boardProfile.conventions.sigFigs || 3} significant figures where applicable.`;
+    const genInstruction = `\n\n${boardContext}\n\nReturn ONLY JSON { mcqs: [...], solution: { finalAnswer, unit, workingSteps, keyFormulas } }. Ensure final_answer_text and final_choice for MCQ summary are derivable.`;
     const genContent: any[] = [ { type: 'text', text: `ProblemSummary:\n${JSON.stringify(parsedSummary).slice(0, 900)}` }, { type: 'text', text: genInstruction } ];
     // Include a compact original text snippet for grounding
     genContent.unshift({ type: 'text', text: userTextRaw.slice(0, 1200) });

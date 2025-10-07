@@ -21,6 +21,7 @@ interface Question {
   subject?: string;           // e.g., Mathematics, Physics, Chemistry, Biology, History
   syllabus?: string;          // e.g., Cambridge, Edexcel, IB, Generic
   level?: string;             // e.g., A-Level, GCSE, IB HL/SL, University
+  specCode?: string;          // e.g., 9702/2024, H556, unknown
 }
 
 interface QuestionInputProps {
@@ -187,6 +188,7 @@ export function QuestionInput({ onSubmit, onBack }: QuestionInputProps) {
       subject,
       syllabus,
       level,
+      specCode: '', // Can be extended with a UI input field later
     };
 
     onSubmit(question);
